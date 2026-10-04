@@ -1,0 +1,1525 @@
+From: Highball engine proposal contributors
+Subject: [EXPERIMENTAL] ntdll: AoE IV Rosetta softfault bridge and immutable code cache
+
+Recovered GameToMac 0.1.5-alpha Wine changes by Marc Ibrahim (LGPL-2.1+),
+via NerRobDog/wine-aoe4 at 711c6fc7559a565c417aab4d52d84b09767a9c1d.
+Includes NerRobDog's near-Jcc relocation extension and cache diagnostics.
+HDE notices are preserved. The matching softfault-capable x87sidecar is
+required; generic i386 cooperative attach does not supply this hook.
+
+Adapted to Highball's pinned CrossOver 26.3 base plus patches 0001-0016.
+Reuses 0012's cooperative protocol, deferring only the AoE attach until
+ntdll and the bridge are mapped. Checks the SHA256 of the same descriptor
+Wine uses for SEC_IMAGE, plus the mapped x64 image base, before attaching
+or enabling the cache. Opt-in only, default engines are unchanged.
+
+Verification: Linux portable guard/relocator/cache tests and patch
+application against the pinned source plus Highball's existing series.
+No macOS build, Rosetta or game verification yet. Game build pinned to
+5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c.
+Upstream status: proposal only; no issue or PR filed.
+
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index f20e42a..4fc338e 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -1771,3 +1771,6 @@
+ 
+ # CW HACK 22435
+ @ stdcall __wine_unix_call(int64 long ptr) __wine_unix_call_exported
++
++@ cdecl -norelay -arch=x86_64 __wine_aoe_softfault1()
++@ cdecl -norelay -arch=x86_64 __wine_aoe_softfault2()
+diff --git a/dlls/ntdll/signal_x86_64.c b/dlls/ntdll/signal_x86_64.c
+index a5bbbae..f5582a0 100644
+--- a/dlls/ntdll/signal_x86_64.c
++++ b/dlls/ntdll/signal_x86_64.c
+@@ -133,6 +133,85 @@ static NTSTATUS virtual_unwind( ULONG type, DISPATCHER_CONTEXT *dispatch, CONTEX
+ /***********************************************************************
+  *		RtlCaptureContext (NTDLL.@)
+  */
++/* Opt-in software delivery thunk; installed only in the isolated soft engine. */
++void DECLSPEC_NORETURN aoe_soft_dispatch(ULONG64 *r, BYTE *xs, ULONG fault_length) {
++ BYTE storage[4096];ULONG avx_len=0;CONTEXT *c;CONTEXT_EX *ex;EXCEPTION_RECORD rec={0};ULONG64 mask;void *avx;NTSTATUS status;
++ memset(storage,0,sizeof(storage));
++ status=RtlInitializeExtendedContext2(storage,CONTEXT_ALL|CONTEXT_XSTATE,&ex,7);
++ if(status)RtlRaiseStatus(status);
++ c=RtlLocateLegacyContext(ex,NULL);
++ status=WINE_UNIX_CALL(unix_aoe_exception_context,c);
++ if(status)RtlRaiseStatus(status);
++ c->ContextFlags=CONTEXT_ALL|CONTEXT_XSTATE;
++ c->R15=r[0];c->R14=r[1];c->R13=r[2];c->R12=r[3];c->R11=r[4];c->R10=r[5];c->R9=r[6];c->R8=r[7];c->Rdi=r[8];c->Rsi=r[9];c->Rbp=r[10];c->Rbx=r[11];c->Rdx=r[12];c->Rcx=r[13];c->Rax=r[14];c->EFlags=(DWORD)r[15];c->Rip=r[16]-fault_length;c->Rsp=(ULONG64)(r+17);
++ memcpy(&c->FltSave,xs,512);memcpy(&c->MxCsr,xs+24,4);
++ avx=RtlLocateExtendedFeature(ex,2,&avx_len);if(!avx||avx_len!=256)RtlRaiseStatus(STATUS_INVALID_PARAMETER);
++ memcpy(&mask,xs+512,8);if(mask&4)memcpy(avx,xs+576,256);else memset(avx,0,256);
++ RtlSetExtendedFeaturesMask(ex,7);
++ rec.ExceptionCode=EXCEPTION_ILLEGAL_INSTRUCTION;rec.ExceptionAddress=(void *)c->Rip;
++ status=NtRaiseException(&rec,c,TRUE);for (;;) RtlRaiseStatus(status);
++}
++
++__ASM_GLOBAL_FUNC( __wine_aoe_softfault1,
++                   "pushfq\n\t"
++                   "push %rax\n\t"
++                   "push %rcx\n\t"
++                   "push %rdx\n\t"
++                   "push %rbx\n\t"
++                   "push %rbp\n\t"
++                   "push %rsi\n\t"
++                   "push %rdi\n\t"
++                   "push %r8\n\t"
++                   "push %r9\n\t"
++                   "push %r10\n\t"
++                   "push %r11\n\t"
++                   "push %r12\n\t"
++                   "push %r13\n\t"
++                   "push %r14\n\t"
++                   "push %r15\n\t"
++                   "mov %rsp,%r12\n\t"
++                   "cld\n\t"
++                   "sub $0x400,%rsp\n\t"
++                   "and $-64,%rsp\n\t"
++                   "mov $7,%eax\n\t"
++                   "xor %edx,%edx\n\t"
++                   "xsave64 64(%rsp)\n\t"
++                   "mov %r12,%rcx\n\t"
++                   "lea 64(%rsp),%rdx\n\t"
++                   "mov $1,%r8d\n\t"
++                   "call " __ASM_NAME("aoe_soft_dispatch") "\n\t"
++                   "ud2" );
++__ASM_GLOBAL_FUNC( __wine_aoe_softfault2,
++                   "pushfq\n\t"
++                   "push %rax\n\t"
++                   "push %rcx\n\t"
++                   "push %rdx\n\t"
++                   "push %rbx\n\t"
++                   "push %rbp\n\t"
++                   "push %rsi\n\t"
++                   "push %rdi\n\t"
++                   "push %r8\n\t"
++                   "push %r9\n\t"
++                   "push %r10\n\t"
++                   "push %r11\n\t"
++                   "push %r12\n\t"
++                   "push %r13\n\t"
++                   "push %r14\n\t"
++                   "push %r15\n\t"
++                   "mov %rsp,%r12\n\t"
++                   "cld\n\t"
++                   "sub $0x400,%rsp\n\t"
++                   "and $-64,%rsp\n\t"
++                   "mov $7,%eax\n\t"
++                   "xor %edx,%edx\n\t"
++                   "xsave64 64(%rsp)\n\t"
++                   "mov %r12,%rcx\n\t"
++                   "lea 64(%rsp),%rdx\n\t"
++                   "mov $2,%r8d\n\t"
++                   "call " __ASM_NAME("aoe_soft_dispatch") "\n\t"
++                   "ud2" );
++
++
+ __ASM_GLOBAL_FUNC( RtlCaptureContext,
+                    "pushfq\n\t"
+                    __ASM_CFI(".cfi_adjust_cfa_offset 8\n\t")
+diff --git a/dlls/ntdll/unix/aoe_build_guard.h b/dlls/ntdll/unix/aoe_build_guard.h
+new file mode 100644
+index 0000000..f02c386
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_build_guard.h
+@@ -0,0 +1,74 @@
++/* AoE IV build eligibility for the experimental Highball engine proposal.
++ * Copyright 2026 Highball engine proposal contributors.
++ * LGPL-2.1-or-later. Hash the same file descriptor Wine will map, not a reopened path. */
++#ifndef HIGHBALL_AOE_BUILD_GUARD_H
++#define HIGHBALL_AOE_BUILD_GUARD_H
++#include <CommonCrypto/CommonDigest.h>
++#include <errno.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <strings.h>
++#include <stdio.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++static const unsigned char aoe_supported_sha256[32] = {
++    0x53,0x80,0xc5,0x77,0x80,0x55,0x65,0x81,0x7f,0x52,0x8a,0xf6,0xea,0xc3,0x85,0x26,
++    0x34,0x13,0xfa,0x68,0x15,0x55,0x3f,0x9a,0x31,0xfa,0x62,0x56,0x1c,0xb4,0x5e,0x8c
++};
++
++static int aoe_game_name(const char *path)
++{
++    const char *p, *name = path;
++    if (!path) return 0;
++    for (p = path; *p; p++) if (*p == '/' || *p == '\\') name = p + 1;
++    return !strcasecmp(name, "RelicCardinal.exe");
++}
++
++static int aoe_bootstrap_is_current(const char *name)
++{
++    char expected[64];
++    snprintf(expected, sizeof(expected), "x87sidecar.%ld", (long)getpid());
++    return name && !strcmp(name, expected);
++}
++
++/* Match the recovered patch's presence-based flags: a value of "0" is still on. */
++static int aoe_patch_requested(void)
++{
++    return getenv("AOELAB_SOFTFAULT_GAME") != NULL || getenv("AOELAB_CODE_CACHE_GAME") != NULL;
++}
++
++static int aoe_hash_fd_matches(int fd, const unsigned char expected[32])
++{
++    unsigned char buffer[65536], digest[32];
++    struct stat before, after;
++    CC_SHA256_CTX context;
++    off_t offset = 0;
++    ssize_t count;
++
++    if (fstat(fd, &before) || !S_ISREG(before.st_mode) || before.st_size <= 0) return 0;
++    if (!CC_SHA256_Init(&context)) return 0;
++    for (;;)
++    {
++        count = pread(fd, buffer, sizeof(buffer), offset);
++        if (count < 0 && errno == EINTR) continue;
++        if (count < 0) return 0;
++        if (!count) break;
++        if (!CC_SHA256_Update(&context, buffer, (CC_LONG)count)) return 0;
++        offset += count;
++    }
++    if (offset != before.st_size || fstat(fd, &after)) return 0;
++    if (before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
++        before.st_size != after.st_size || before.st_mtime != after.st_mtime ||
++        before.st_ctime != after.st_ctime) return 0;
++#ifdef __APPLE__
++    if (before.st_mtimespec.tv_nsec != after.st_mtimespec.tv_nsec ||
++        before.st_ctimespec.tv_nsec != after.st_ctimespec.tv_nsec) return 0;
++#else
++    if (before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
++        before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) return 0;
++#endif
++    return CC_SHA256_Final(digest, &context) && !memcmp(digest, expected, sizeof(digest));
++}
++#endif
+diff --git a/dlls/ntdll/unix/aoe_code_cache.h b/dlls/ntdll/unix/aoe_code_cache.h
+new file mode 100644
+index 0000000..8d278eb
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_code_cache.h
+@@ -0,0 +1,100 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later
++ * GameToMac Wine changes: Marc Ibrahim; extensions: NerRobDog.
++ * Source commit: 711c6fc7559a565c417aab4d52d84b09767a9c1d. */
++/* Experimental opt-in immutable cache; original generated bytes remain untouched. */
++#include <pthread.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <unistd.h>
++#include "aoe_relocate.h"
++extern BOOL aoe_game_verified;
++#define AOE_CACHE_COUNT 262144u
++#define AOE_CACHE_TABLE (AOE_CACHE_COUNT*2)
++struct aoe_cache_entry { struct aoe_fragment_key key; uint64_t hash; uint32_t slot; };
++static pthread_mutex_t aoe_cache_lock=PTHREAD_MUTEX_INITIALIZER;
++static struct aoe_cache_entry *aoe_cache_entries;
++static BYTE *aoe_cache_code;
++static unsigned aoe_cache_used;
++static int aoe_cache_enabled,aoe_cache_attempted;
++static pthread_once_t aoe_cache_enable_once=PTHREAD_ONCE_INIT;
++static void aoe_cache_check_enabled(void)
++{
++ const char *name,*slash;
++ if(!aoe_game_verified||!getenv("AOELAB_CODE_CACHE_GAME")||main_argc<1)return;
++ /* Wine removes the loader argument before Windows code runs. */
++ name=main_argv[0];
++ if((slash=strrchr(name,'/')))name=slash+1;
++ if((slash=strrchr(name,'\\')))name=slash+1;
++ aoe_cache_enabled=!strcasecmp(name,"RelicCardinal.exe") ||
++   (getenv("AOELAB_CODE_CACHE_TEST_RING")&&!strcasecmp(name,"test_runtime_cache.exe"));
++}
++static uint64_t aoe_cache_local_stats[16],*aoe_cache_stats=aoe_cache_local_stats;
++/* NerRobDog: AOELAB_CODE_CACHE_DUMP=1 writes the first 4096 refused fragments (pc + raw bytes) to
++ * $AOELAB_COUNTERS_DIR/codecache-unkeyable-<pid>.txt for offline relocator work. */
++static int aoe_cache_dump_fd=-2;static unsigned aoe_cache_dump_left=4096;
++static void aoe_cache_dump_unkeyable(uint64_t pc,const BYTE *bytes,unsigned n)
++{
++ char line[160];int len;unsigned i;
++ if(aoe_cache_dump_fd==-2){
++  const char *directory=getenv("AOELAB_COUNTERS_DIR");char path[1024];
++  aoe_cache_dump_fd=-1;
++  if(getenv("AOELAB_CODE_CACHE_DUMP")&&directory&&directory[0]=='/'&&snprintf(path,sizeof(path),"%s/codecache-unkeyable-%u.txt",directory,(unsigned)getpid())<(int)sizeof(path))
++   aoe_cache_dump_fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
++ }
++ if(aoe_cache_dump_fd<0||!aoe_cache_dump_left)return;
++ aoe_cache_dump_left--;
++ len=snprintf(line,sizeof(line),"%llx",(unsigned long long)pc);
++ for(i=0;i<n&&len<(int)sizeof(line)-4;i++)len+=snprintf(line+len,sizeof(line)-len," %02x",bytes[i]);
++ if(len<(int)sizeof(line)-1)line[len++]='\n';
++ if(write(aoe_cache_dump_fd,line,len)<0)aoe_cache_dump_left=0;
++}
++static __thread uint64_t aoe_cache_thread_original,aoe_cache_thread_shadow;
++static __thread unsigned aoe_cache_thread_len;
++static void aoe_cache_count(unsigned n){__atomic_fetch_add(&__atomic_load_n(&aoe_cache_stats,__ATOMIC_RELAXED)[n],1,__ATOMIC_RELAXED);}
++static uint64_t aoe_cache_logical_pc(uint64_t pc)
++{
++ if(aoe_cache_thread_shadow && pc>=aoe_cache_thread_shadow && pc<aoe_cache_thread_shadow+aoe_cache_thread_len){aoe_cache_count(7);return aoe_cache_thread_original+(pc-aoe_cache_thread_shadow);}return pc;
++}
++static void aoe_cache_init(void)
++{
++ SIZE_T size=AOE_CACHE_COUNT*64;void *addr=(void*)0x190000000ULL;const char *directory=getenv("AOELAB_COUNTERS_DIR");
++ aoe_cache_attempted=1;
++ if(NtAllocateVirtualMemory(GetCurrentProcess(),&addr,0,&size,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE))return;
++ aoe_cache_entries=calloc(AOE_CACHE_TABLE,sizeof(*aoe_cache_entries));if(!aoe_cache_entries){size=0;NtFreeVirtualMemory(GetCurrentProcess(),&addr,&size,MEM_RELEASE);return;}aoe_cache_code=addr;
++ if(directory&&directory[0]=='/'){
++  char path[1024];int fd;void *map;
++  if(snprintf(path,sizeof(path),"%s/codecache-%u.bin",directory,(unsigned)getpid())<(int)sizeof(path) && (fd=open(path,O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW,0600))>=0){
++   if(!ftruncate(fd,4096)&&(map=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0))!=MAP_FAILED){uint64_t *p=map;p[0]=0x414f454341434831ULL;p[1]=1;p[2]=getpid();p[3]=16;__atomic_store_n(&aoe_cache_stats,p+4,__ATOMIC_RELAXED);}close(fd);
++  }
++ }
++}
++static uint64_t aoe_cache_target(uint64_t pc)
++{
++ uint64_t ring=0,hash=1469598103934665603ULL,result=pc;BYTE original[32],emitted[40];struct aoe_fragment_key key;unsigned available,i,index;const char *test;
++ pthread_once(&aoe_cache_enable_once,aoe_cache_check_enabled);
++ if(!aoe_cache_enabled || pc<0x140000000ULL || pc>=0x180000000ULL)return pc;
++ test=getenv("AOELAB_CODE_CACHE_TEST_RING");
++ if(test)ring=strtoull(test,NULL,0);
++ else if(virtual_uninterrupted_read_memory((void*)0x147af7ad0ULL,&ring,sizeof(ring))!=sizeof(ring))return pc;
++ if(!ring||pc<ring||pc>=ring+0x1000000)return pc;
++ available=32-(pc-ring)%32;
++ if(virtual_uninterrupted_read_memory((void*)pc,original,available)!=available)return pc;
++ if(!aoe_fragment_key(original,available,pc,&key)){aoe_cache_count(4);pthread_mutex_lock(&aoe_cache_lock);aoe_cache_dump_unkeyable(pc,original,available);pthread_mutex_unlock(&aoe_cache_lock);return pc;}
++ for(i=0;i<sizeof(key);i++){hash^=((BYTE*)&key)[i];hash*=1099511628211ULL;}if(!hash)hash=1;
++ pthread_mutex_lock(&aoe_cache_lock);
++ if(!aoe_cache_attempted)aoe_cache_init();aoe_cache_count(0);
++ if(!aoe_cache_code)goto done;
++ index=hash&(AOE_CACHE_TABLE-1);
++ for(i=0;i<64;i++,index=(index+1)&(AOE_CACHE_TABLE-1)){
++  struct aoe_cache_entry *e=&aoe_cache_entries[index];
++  if(e->hash==hash&&!memcmp(&e->key,&key,sizeof(key))){aoe_cache_count(2);result=(uint64_t)(aoe_cache_code+e->slot*64);break;}
++  if(!e->hash){
++   BYTE *target;if(aoe_cache_used==AOE_CACHE_COUNT){aoe_cache_count(6);break;}target=aoe_cache_code+aoe_cache_used*64;
++   if(!aoe_fragment_emit(&key,(uint64_t)target,emitted)){aoe_cache_count(6);break;}
++   memcpy(target,emitted,40);e->key=key;e->slot=aoe_cache_used++;e->hash=hash;aoe_cache_count(3);__atomic_store_n(&aoe_cache_stats[8],aoe_cache_used,__ATOMIC_RELAXED);result=(uint64_t)target;break;
++  }
++ }
++ if(i==64)aoe_cache_count(6);
++ if(result!=pc){aoe_cache_thread_original=pc;aoe_cache_thread_shadow=result;aoe_cache_thread_len=key.len;aoe_cache_count(1);}
++done:pthread_mutex_unlock(&aoe_cache_lock);return result;
++}
+diff --git a/dlls/ntdll/unix/aoe_hde64.h b/dlls/ntdll/unix/aoe_hde64.h
+new file mode 100644
+index 0000000..fbc2848
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_hde64.h
+@@ -0,0 +1,195 @@
++/*
++ * ﻿MinHook - The Minimalistic API Hooking Library for x64/x86
++ * Copyright (C) 2009-2017 Tsuda Kageyu.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * ================================================================================
++ * Portions of this software are Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * ================================================================================
++ * Hacker Disassembler Engine 32 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * -------------------------------------------------------------------------------
++ * Hacker Disassembler Engine 64 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++/*
++ * Hacker Disassembler Engine 64
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * hde64.h: C/C++ header file
++ *
++ */
++
++#ifndef _HDE64_H_
++#define _HDE64_H_
++
++/* stdint.h - C99 standard header
++ * http://en.wikipedia.org/wiki/stdint.h
++ *
++ * if your compiler doesn't contain "stdint.h" header (for
++ * example, Microsoft Visual C++), you can download file:
++ *   http://www.azillionmonkeys.com/qed/pstdint.h
++ * and change next line to:
++ *   #include <stdint.h>
++ */
++#include <stdint.h>
++
++#define F_MODRM         0x00000001
++#define F_SIB           0x00000002
++#define F_IMM8          0x00000004
++#define F_IMM16         0x00000008
++#define F_IMM32         0x00000010
++#define F_IMM64         0x00000020
++#define F_DISP8         0x00000040
++#define F_DISP16        0x00000080
++#define F_DISP32        0x00000100
++#define F_RELATIVE      0x00000200
++#define F_ERROR         0x00001000
++#define F_ERROR_OPCODE  0x00002000
++#define F_ERROR_LENGTH  0x00004000
++#define F_ERROR_LOCK    0x00008000
++#define F_ERROR_OPERAND 0x00010000
++#define F_PREFIX_REPNZ  0x01000000
++#define F_PREFIX_REPX   0x02000000
++#define F_PREFIX_REP    0x03000000
++#define F_PREFIX_66     0x04000000
++#define F_PREFIX_67     0x08000000
++#define F_PREFIX_LOCK   0x10000000
++#define F_PREFIX_SEG    0x20000000
++#define F_PREFIX_REX    0x40000000
++#define F_PREFIX_ANY    0x7f000000
++
++#define PREFIX_SEGMENT_CS   0x2e
++#define PREFIX_SEGMENT_SS   0x36
++#define PREFIX_SEGMENT_DS   0x3e
++#define PREFIX_SEGMENT_ES   0x26
++#define PREFIX_SEGMENT_FS   0x64
++#define PREFIX_SEGMENT_GS   0x65
++#define PREFIX_LOCK         0xf0
++#define PREFIX_REPNZ        0xf2
++#define PREFIX_REPX         0xf3
++#define PREFIX_OPERAND_SIZE 0x66
++#define PREFIX_ADDRESS_SIZE 0x67
++
++#pragma pack(push,1)
++
++typedef struct {
++    uint8_t len;
++    uint8_t p_rep;
++    uint8_t p_lock;
++    uint8_t p_seg;
++    uint8_t p_66;
++    uint8_t p_67;
++    uint8_t rex;
++    uint8_t rex_w;
++    uint8_t rex_r;
++    uint8_t rex_x;
++    uint8_t rex_b;
++    uint8_t opcode;
++    uint8_t opcode2;
++    uint8_t modrm;
++    uint8_t modrm_mod;
++    uint8_t modrm_reg;
++    uint8_t modrm_rm;
++    uint8_t sib;
++    uint8_t sib_scale;
++    uint8_t sib_index;
++    uint8_t sib_base;
++    union {
++        uint8_t imm8;
++        uint16_t imm16;
++        uint32_t imm32;
++        uint64_t imm64;
++    } imm;
++    union {
++        uint8_t disp8;
++        uint16_t disp16;
++        uint32_t disp32;
++    } disp;
++    uint32_t flags;
++} hde64s;
++
++#pragma pack(pop)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* __cdecl */
++unsigned int hde64_disasm(const void *code, hde64s *hs);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _HDE64_H_ */
+diff --git a/dlls/ntdll/unix/aoe_hde_impl.h b/dlls/ntdll/unix/aoe_hde_impl.h
+new file mode 100644
+index 0000000..cdcbd98
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_hde_impl.h
+@@ -0,0 +1,418 @@
++/*
++ * ﻿MinHook - The Minimalistic API Hooking Library for x64/x86
++ * Copyright (C) 2009-2017 Tsuda Kageyu.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * ================================================================================
++ * Portions of this software are Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * ================================================================================
++ * Hacker Disassembler Engine 32 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * -------------------------------------------------------------------------------
++ * Hacker Disassembler Engine 64 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++/*
++ * Hacker Disassembler Engine 64 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ */
++
++#if defined(_M_X64) || defined(__x86_64__)
++
++#include <string.h>
++#include "aoe_hde64.h"
++#include "aoe_hde_table.h"
++
++unsigned int hde64_disasm(const void *code, hde64s *hs)
++{
++    uint8_t x, c, *p = (uint8_t *)code, cflags, opcode, pref = 0;
++    uint8_t *ht = hde64_table, m_mod, m_reg, m_rm, disp_size = 0;
++    uint8_t op64 = 0;
++
++    memset(hs, 0, sizeof(hde64s));
++
++    for (x = 16; x; x--)
++        switch (c = *p++) {
++            case 0xf3:
++                hs->p_rep = c;
++                pref |= PRE_F3;
++                break;
++            case 0xf2:
++                hs->p_rep = c;
++                pref |= PRE_F2;
++                break;
++            case 0xf0:
++                hs->p_lock = c;
++                pref |= PRE_LOCK;
++                break;
++            case 0x26: case 0x2e: case 0x36:
++            case 0x3e: case 0x64: case 0x65:
++                hs->p_seg = c;
++                pref |= PRE_SEG;
++                break;
++            case 0x66:
++                hs->p_66 = c;
++                pref |= PRE_66;
++                break;
++            case 0x67:
++                hs->p_67 = c;
++                pref |= PRE_67;
++                break;
++            default:
++                goto pref_done;
++        }
++  pref_done:
++
++    hs->flags = (uint32_t)pref << 23;
++
++    if (!pref)
++        pref |= PRE_NONE;
++
++    if ((c & 0xf0) == 0x40) {
++        hs->flags |= F_PREFIX_REX;
++        if ((hs->rex_w = (c & 0xf) >> 3) && (*p & 0xf8) == 0xb8)
++            op64++;
++        hs->rex_r = (c & 7) >> 2;
++        hs->rex_x = (c & 3) >> 1;
++        hs->rex_b = c & 1;
++        if (((c = *p++) & 0xf0) == 0x40) {
++            opcode = c;
++            goto error_opcode;
++        }
++    }
++
++    if ((hs->opcode = c) == 0x0f) {
++        hs->opcode2 = c = *p++;
++        ht += DELTA_OPCODES;
++    } else if (c >= 0xa0 && c <= 0xa3) {
++        op64++;
++        if (pref & PRE_67)
++            pref |= PRE_66;
++        else
++            pref &= ~PRE_66;
++    }
++
++    opcode = c;
++    cflags = ht[ht[opcode / 4] + (opcode % 4)];
++
++    if (cflags == C_ERROR) {
++      error_opcode:
++        hs->flags |= F_ERROR | F_ERROR_OPCODE;
++        cflags = 0;
++        if ((opcode & -3) == 0x24)
++            cflags++;
++    }
++
++    x = 0;
++    if (cflags & C_GROUP) {
++        uint16_t t;
++        t = *(uint16_t *)(ht + (cflags & 0x7f));
++        cflags = (uint8_t)t;
++        x = (uint8_t)(t >> 8);
++    }
++
++    if (hs->opcode2) {
++        ht = hde64_table + DELTA_PREFIXES;
++        if (ht[ht[opcode / 4] + (opcode % 4)] & pref)
++            hs->flags |= F_ERROR | F_ERROR_OPCODE;
++    }
++
++    if (cflags & C_MODRM) {
++        hs->flags |= F_MODRM;
++        hs->modrm = c = *p++;
++        hs->modrm_mod = m_mod = c >> 6;
++        hs->modrm_rm = m_rm = c & 7;
++        hs->modrm_reg = m_reg = (c & 0x3f) >> 3;
++
++        if (x && ((x << m_reg) & 0x80))
++            hs->flags |= F_ERROR | F_ERROR_OPCODE;
++
++        if (!hs->opcode2 && opcode >= 0xd9 && opcode <= 0xdf) {
++            uint8_t t = opcode - 0xd9;
++            if (m_mod == 3) {
++                ht = hde64_table + DELTA_FPU_MODRM + t*8;
++                t = ht[m_reg] << m_rm;
++            } else {
++                ht = hde64_table + DELTA_FPU_REG;
++                t = ht[t] << m_reg;
++            }
++            if (t & 0x80)
++                hs->flags |= F_ERROR | F_ERROR_OPCODE;
++        }
++
++        if (pref & PRE_LOCK) {
++            if (m_mod == 3) {
++                hs->flags |= F_ERROR | F_ERROR_LOCK;
++            } else {
++                uint8_t *table_end, op = opcode;
++                if (hs->opcode2) {
++                    ht = hde64_table + DELTA_OP2_LOCK_OK;
++                    table_end = ht + DELTA_OP_ONLY_MEM - DELTA_OP2_LOCK_OK;
++                } else {
++                    ht = hde64_table + DELTA_OP_LOCK_OK;
++                    table_end = ht + DELTA_OP2_LOCK_OK - DELTA_OP_LOCK_OK;
++                    op &= -2;
++                }
++                for (; ht != table_end; ht++)
++                    if (*ht++ == op) {
++                        if (!((*ht << m_reg) & 0x80))
++                            goto no_lock_error;
++                        else
++                            break;
++                    }
++                hs->flags |= F_ERROR | F_ERROR_LOCK;
++              no_lock_error:
++                ;
++            }
++        }
++
++        if (hs->opcode2) {
++            switch (opcode) {
++                case 0x20: case 0x22:
++                    m_mod = 3;
++                    if (m_reg > 4 || m_reg == 1)
++                        goto error_operand;
++                    else
++                        goto no_error_operand;
++                case 0x21: case 0x23:
++                    m_mod = 3;
++                    if (m_reg == 4 || m_reg == 5)
++                        goto error_operand;
++                    else
++                        goto no_error_operand;
++            }
++        } else {
++            switch (opcode) {
++                case 0x8c:
++                    if (m_reg > 5)
++                        goto error_operand;
++                    else
++                        goto no_error_operand;
++                case 0x8e:
++                    if (m_reg == 1 || m_reg > 5)
++                        goto error_operand;
++                    else
++                        goto no_error_operand;
++            }
++        }
++
++        if (m_mod == 3) {
++            uint8_t *table_end;
++            if (hs->opcode2) {
++                ht = hde64_table + DELTA_OP2_ONLY_MEM;
++                table_end = ht + sizeof(hde64_table) - DELTA_OP2_ONLY_MEM;
++            } else {
++                ht = hde64_table + DELTA_OP_ONLY_MEM;
++                table_end = ht + DELTA_OP2_ONLY_MEM - DELTA_OP_ONLY_MEM;
++            }
++            for (; ht != table_end; ht += 2)
++                if (*ht++ == opcode) {
++                    if ((*ht++ & pref) && !((*ht << m_reg) & 0x80))
++                        goto error_operand;
++                    else
++                        break;
++                }
++            goto no_error_operand;
++        } else if (hs->opcode2) {
++            switch (opcode) {
++                case 0x50: case 0xd7: case 0xf7:
++                    if (pref & (PRE_NONE | PRE_66))
++                        goto error_operand;
++                    break;
++                case 0xd6:
++                    if (pref & (PRE_F2 | PRE_F3))
++                        goto error_operand;
++                    break;
++                case 0xc5:
++                    goto error_operand;
++            }
++            goto no_error_operand;
++        } else
++            goto no_error_operand;
++
++      error_operand:
++        hs->flags |= F_ERROR | F_ERROR_OPERAND;
++      no_error_operand:
++
++        c = *p++;
++        if (m_reg <= 1) {
++            if (opcode == 0xf6)
++                cflags |= C_IMM8;
++            else if (opcode == 0xf7)
++                cflags |= C_IMM_P66;
++        }
++
++        switch (m_mod) {
++            case 0:
++                if (pref & PRE_67) {
++                    if (m_rm == 6)
++                        disp_size = 2;
++                } else
++                    if (m_rm == 5)
++                        disp_size = 4;
++                break;
++            case 1:
++                disp_size = 1;
++                break;
++            case 2:
++                disp_size = 2;
++                if (!(pref & PRE_67))
++                    disp_size <<= 1;
++                break;
++        }
++
++        if (m_mod != 3 && m_rm == 4) {
++            hs->flags |= F_SIB;
++            p++;
++            hs->sib = c;
++            hs->sib_scale = c >> 6;
++            hs->sib_index = (c & 0x3f) >> 3;
++            if ((hs->sib_base = c & 7) == 5 && !(m_mod & 1))
++                disp_size = 4;
++        }
++
++        p--;
++        switch (disp_size) {
++            case 1:
++                hs->flags |= F_DISP8;
++                hs->disp.disp8 = *p;
++                break;
++            case 2:
++                hs->flags |= F_DISP16;
++                hs->disp.disp16 = *(uint16_t *)p;
++                break;
++            case 4:
++                hs->flags |= F_DISP32;
++                hs->disp.disp32 = *(uint32_t *)p;
++                break;
++        }
++        p += disp_size;
++    } else if (pref & PRE_LOCK)
++        hs->flags |= F_ERROR | F_ERROR_LOCK;
++
++    if (cflags & C_IMM_P66) {
++        if (cflags & C_REL32) {
++            if (pref & PRE_66) {
++                hs->flags |= F_IMM16 | F_RELATIVE;
++                hs->imm.imm16 = *(uint16_t *)p;
++                p += 2;
++                goto disasm_done;
++            }
++            goto rel32_ok;
++        }
++        if (op64) {
++            hs->flags |= F_IMM64;
++            hs->imm.imm64 = *(uint64_t *)p;
++            p += 8;
++        } else if (!(pref & PRE_66)) {
++            hs->flags |= F_IMM32;
++            hs->imm.imm32 = *(uint32_t *)p;
++            p += 4;
++        } else
++            goto imm16_ok;
++    }
++
++
++    if (cflags & C_IMM16) {
++      imm16_ok:
++        hs->flags |= F_IMM16;
++        hs->imm.imm16 = *(uint16_t *)p;
++        p += 2;
++    }
++    if (cflags & C_IMM8) {
++        hs->flags |= F_IMM8;
++        hs->imm.imm8 = *p++;
++    }
++
++    if (cflags & C_REL32) {
++      rel32_ok:
++        hs->flags |= F_IMM32 | F_RELATIVE;
++        hs->imm.imm32 = *(uint32_t *)p;
++        p += 4;
++    } else if (cflags & C_REL8) {
++        hs->flags |= F_IMM8 | F_RELATIVE;
++        hs->imm.imm8 = *p++;
++    }
++
++  disasm_done:
++
++    if ((hs->len = (uint8_t)(p-(uint8_t *)code)) > 15) {
++        hs->flags |= F_ERROR | F_ERROR_LENGTH;
++        hs->len = 15;
++    }
++
++    return (unsigned int)hs->len;
++}
++
++#endif // defined(_M_X64) || defined(__x86_64__)
+diff --git a/dlls/ntdll/unix/aoe_hde_table.h b/dlls/ntdll/unix/aoe_hde_table.h
+new file mode 100644
+index 0000000..dc2a386
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_hde_table.h
+@@ -0,0 +1,157 @@
++/*
++ * ﻿MinHook - The Minimalistic API Hooking Library for x64/x86
++ * Copyright (C) 2009-2017 Tsuda Kageyu.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * ================================================================================
++ * Portions of this software are Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * ================================================================================
++ * Hacker Disassembler Engine 32 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * -------------------------------------------------------------------------------
++ * Hacker Disassembler Engine 64 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++/*
++ * Hacker Disassembler Engine 64 C
++ * Copyright (c) 2008-2009, Vyacheslav Patkov.
++ * All rights reserved.
++ *
++ */
++
++#define C_NONE    0x00
++#define C_MODRM   0x01
++#define C_IMM8    0x02
++#define C_IMM16   0x04
++#define C_IMM_P66 0x10
++#define C_REL8    0x20
++#define C_REL32   0x40
++#define C_GROUP   0x80
++#define C_ERROR   0xff
++
++#define PRE_ANY  0x00
++#define PRE_NONE 0x01
++#define PRE_F2   0x02
++#define PRE_F3   0x04
++#define PRE_66   0x08
++#define PRE_67   0x10
++#define PRE_LOCK 0x20
++#define PRE_SEG  0x40
++#define PRE_ALL  0xff
++
++#define DELTA_OPCODES      0x4a
++#define DELTA_FPU_REG      0xfd
++#define DELTA_FPU_MODRM    0x104
++#define DELTA_PREFIXES     0x13c
++#define DELTA_OP_LOCK_OK   0x1ae
++#define DELTA_OP2_LOCK_OK  0x1c6
++#define DELTA_OP_ONLY_MEM  0x1d8
++#define DELTA_OP2_ONLY_MEM 0x1e7
++
++unsigned char hde64_table[] = {
++  0xa5,0xaa,0xa5,0xb8,0xa5,0xaa,0xa5,0xaa,0xa5,0xb8,0xa5,0xb8,0xa5,0xb8,0xa5,
++  0xb8,0xc0,0xc0,0xc0,0xc0,0xc0,0xc0,0xc0,0xc0,0xac,0xc0,0xcc,0xc0,0xa1,0xa1,
++  0xa1,0xa1,0xb1,0xa5,0xa5,0xa6,0xc0,0xc0,0xd7,0xda,0xe0,0xc0,0xe4,0xc0,0xea,
++  0xea,0xe0,0xe0,0x98,0xc8,0xee,0xf1,0xa5,0xd3,0xa5,0xa5,0xa1,0xea,0x9e,0xc0,
++  0xc0,0xc2,0xc0,0xe6,0x03,0x7f,0x11,0x7f,0x01,0x7f,0x01,0x3f,0x01,0x01,0xab,
++  0x8b,0x90,0x64,0x5b,0x5b,0x5b,0x5b,0x5b,0x92,0x5b,0x5b,0x76,0x90,0x92,0x92,
++  0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x6a,0x73,0x90,
++  0x5b,0x52,0x52,0x52,0x52,0x5b,0x5b,0x5b,0x5b,0x77,0x7c,0x77,0x85,0x5b,0x5b,
++  0x70,0x5b,0x7a,0xaf,0x76,0x76,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,0x5b,
++  0x5b,0x5b,0x86,0x01,0x03,0x01,0x04,0x03,0xd5,0x03,0xd5,0x03,0xcc,0x01,0xbc,
++  0x03,0xf0,0x03,0x03,0x04,0x00,0x50,0x50,0x50,0x50,0xff,0x20,0x20,0x20,0x20,
++  0x01,0x01,0x01,0x01,0xc4,0x02,0x10,0xff,0xff,0xff,0x01,0x00,0x03,0x11,0xff,
++  0x03,0xc4,0xc6,0xc8,0x02,0x10,0x00,0xff,0xcc,0x01,0x01,0x01,0x00,0x00,0x00,
++  0x00,0x01,0x01,0x03,0x01,0xff,0xff,0xc0,0xc2,0x10,0x11,0x02,0x03,0x01,0x01,
++  0x01,0xff,0xff,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x10,
++  0x10,0x10,0x10,0x02,0x10,0x00,0x00,0xc6,0xc8,0x02,0x02,0x02,0x02,0x06,0x00,
++  0x04,0x00,0x02,0xff,0x00,0xc0,0xc2,0x01,0x01,0x03,0x03,0x03,0xca,0x40,0x00,
++  0x0a,0x00,0x04,0x00,0x00,0x00,0x00,0x7f,0x00,0x33,0x01,0x00,0x00,0x00,0x00,
++  0x00,0x00,0xff,0xbf,0xff,0xff,0x00,0x00,0x00,0x00,0x07,0x00,0x00,0xff,0x00,
++  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,
++  0x00,0x00,0x00,0xbf,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x7f,0x00,0x00,
++  0xff,0x40,0x40,0x40,0x40,0x41,0x49,0x40,0x40,0x40,0x40,0x4c,0x42,0x40,0x40,
++  0x40,0x40,0x40,0x40,0x40,0x40,0x4f,0x44,0x53,0x40,0x40,0x40,0x44,0x57,0x43,
++  0x5c,0x40,0x60,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,
++  0x40,0x40,0x64,0x66,0x6e,0x6b,0x40,0x40,0x6a,0x46,0x40,0x40,0x44,0x46,0x40,
++  0x40,0x5b,0x44,0x40,0x40,0x00,0x00,0x00,0x00,0x06,0x06,0x06,0x06,0x01,0x06,
++  0x06,0x02,0x06,0x06,0x00,0x06,0x00,0x0a,0x0a,0x00,0x00,0x00,0x02,0x07,0x07,
++  0x06,0x02,0x0d,0x06,0x06,0x06,0x0e,0x05,0x05,0x02,0x02,0x00,0x00,0x04,0x04,
++  0x04,0x04,0x05,0x06,0x06,0x06,0x00,0x00,0x00,0x0e,0x00,0x00,0x08,0x00,0x10,
++  0x00,0x18,0x00,0x20,0x00,0x28,0x00,0x30,0x00,0x80,0x01,0x82,0x01,0x86,0x00,
++  0xf6,0xcf,0xfe,0x3f,0xab,0x00,0xb0,0x00,0xb1,0x00,0xb3,0x00,0xba,0xf8,0xbb,
++  0x00,0xc0,0x00,0xc1,0x00,0xc7,0xbf,0x62,0xff,0x00,0x8d,0xff,0x00,0xc4,0xff,
++  0x00,0xc5,0xff,0x00,0xff,0xff,0xeb,0x01,0xff,0x0e,0x12,0x08,0x00,0x13,0x09,
++  0x00,0x16,0x08,0x00,0x17,0x09,0x00,0x2b,0x09,0x00,0xae,0xff,0x07,0xb2,0xff,
++  0x00,0xb4,0xff,0x00,0xb5,0xff,0x00,0xc3,0x01,0x00,0xc7,0xff,0xbf,0xe7,0x08,
++  0x00,0xf0,0x02,0x00
++};
+diff --git a/dlls/ntdll/unix/aoe_relocate.h b/dlls/ntdll/unix/aoe_relocate.h
+new file mode 100644
+index 0000000..6e3b994
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_relocate.h
+@@ -0,0 +1,70 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later
++ * GameToMac Wine changes: Marc Ibrahim; extensions: NerRobDog.
++ * Source commit: 711c6fc7559a565c417aab4d52d84b09767a9c1d. */
++/* Experimental conservative relocation of straight-line generated fragments.
++ *
++ * NerRobDog 2026-09-09: near conditional branches (0F 8x rel32) that leave the block are
++ * relocatable too: the block continues on the fall-through path and the rel32 is
++ * patched like any other relocation. Only the 6-byte form is accepted so the cached
++ * copy keeps the original byte layout (aoe_cache_logical_pc maps shadow<->original by
++ * offset). Short Jcc (70..7F rel8), calls, loops, jumps into the block, prefixed
++ * branches and more than 8 relocations are still refused. */
++#include <stdint.h>
++#include <string.h>
++#include <limits.h>
++#include "aoe_hde_impl.h"
++#define AOE_FRAGMENT_MAX 40
++struct aoe_fragment_key { uint8_t code[AOE_FRAGMENT_MAX], len, count, offsets[8], ends[8]; uint64_t targets[8]; };
++static int aoe_plain_instruction(const hde64s *h)
++{
++ unsigned op=h->opcode;
++ if(h->p_rep||h->p_67||h->p_lock)return 0;
++ if(op==0x0f)return (h->opcode2>=0x40&&h->opcode2<=0x4f)||(h->opcode2>=0x90&&h->opcode2<=0x9f)||h->opcode2==0xaf||h->opcode2==0xb6||h->opcode2==0xb7||h->opcode2==0xbe||h->opcode2==0xbf;
++ if((op>=0x50&&op<=0x5f)||(op>=0xb0&&op<=0xbf)||op==0x90||op==0x98||op==0x99)return 1;
++ if(op<=0x3d && (op&7)<=5)return 1;
++ switch(op){case 0x63:case 0x68:case 0x69:case 0x6a:case 0x6b:case 0x80:case 0x81:case 0x83:case 0x84:case 0x85:case 0x86:case 0x87:case 0x88:case 0x89:case 0x8a:case 0x8b:case 0x8d:case 0x8f:case 0xc0:case 0xc1:case 0xc6:case 0xc7:case 0xd0:case 0xd1:case 0xd2:case 0xd3:case 0xf6:case 0xf7:case 0xfe:return 1;case 0xff:return h->modrm_reg<=1;default:return 0;}
++}
++/* Near Jcc 0F 80..8F rel32 only (layout-preserving); short Jcc is left to the generic refusal. */
++static int aoe_near_jcc(const hde64s *h){return h->opcode==0x0f&&h->opcode2>=0x80&&h->opcode2<=0x8f;}
++static int aoe_fragment_key(const uint8_t *source,unsigned available,uint64_t pc,struct aoe_fragment_key *k)
++{
++ unsigned offset=0,out=0,steps;memset(k,0,sizeof(*k));
++ for(steps=0;steps<16 && offset<available;steps++){
++  uint8_t scratch[32]={0};hde64s h;unsigned imm=0,disp;uint64_t target;
++  memcpy(scratch,source+offset,available-offset<16?available-offset:16);hde64_disasm(scratch,&h);
++  if(!h.len||h.len>available-offset||(h.flags&F_ERROR)||h.p_67||h.p_rep||h.p_lock)return 0;
++  if(h.opcode==0xe9||h.opcode==0xeb){
++   if(h.p_66||h.p_seg||h.rex||k->count==8||out+5>AOE_FRAGMENT_MAX)return 0;
++   target=pc+offset+h.len+(h.opcode==0xe9?(int64_t)(int32_t)h.imm.imm32:(int64_t)(int8_t)h.imm.imm8);
++   /* Avoid branches into this block; they need a complete control-flow map. */
++   if(target>=pc&&target<pc+available)return 0;
++   k->code[out]=0xe9;k->offsets[k->count]=out+1;k->ends[k->count]=out+5;k->targets[k->count++]=target;k->len=out+5;return 1;
++  }
++  if(aoe_near_jcc(&h)){
++   /* conditional branch leaving the block: relocate rel32, block continues on the fall-through path */
++   if(h.p_66||h.p_seg||h.rex||h.len!=6||k->count==8||out+6>AOE_FRAGMENT_MAX)return 0;
++   target=pc+offset+h.len+(int64_t)(int32_t)h.imm.imm32;
++   if(target>=pc&&target<pc+available)return 0;
++   k->code[out]=0x0f;k->code[out+1]=h.opcode2;k->offsets[k->count]=out+2;k->ends[k->count]=out+6;k->targets[k->count++]=target;
++   out+=6;offset+=6;continue;
++  }
++  if(out+h.len>AOE_FRAGMENT_MAX)return 0;
++  memcpy(k->code+out,source+offset,h.len);
++  if(h.opcode==0xc3||h.opcode==0xc2){if(h.p_66||h.p_seg||h.rex)return 0;k->len=out+h.len;return 1;}
++  if((h.flags&F_RELATIVE)||!aoe_plain_instruction(&h))return 0;
++  if((h.flags&F_MODRM)&&h.modrm_mod==0&&h.modrm_rm==5){
++   if(h.p_seg||!(h.flags&F_DISP32)||k->count==8)return 0;
++   if(h.flags&F_IMM8)imm+=1;if(h.flags&F_IMM16)imm+=2;if(h.flags&F_IMM32)imm+=4;if(h.flags&F_IMM64)imm+=8;
++   if(h.len<imm+4)return 0;disp=out+h.len-imm-4;
++   target=pc+offset+h.len+(int64_t)(int32_t)h.disp.disp32;
++   memset(k->code+disp,0,4);k->offsets[k->count]=disp;k->ends[k->count]=out+h.len;k->targets[k->count++]=target;
++  }
++  out+=h.len;offset+=h.len;
++ }
++ return 0;
++}
++static int aoe_fragment_emit(const struct aoe_fragment_key *k,uint64_t pc,uint8_t output[AOE_FRAGMENT_MAX])
++{
++ unsigned i;memcpy(output,k->code,AOE_FRAGMENT_MAX);
++ for(i=0;i<k->count;i++){int64_t delta=(int64_t)k->targets[i]-(int64_t)(pc+k->ends[i]);int32_t d;if(delta<INT32_MIN||delta>INT32_MAX)return 0;d=delta;memcpy(output+k->offsets[i],&d,4);}return 1;
++}
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index 247ee30..d0c99c8 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -101,6 +101,48 @@
+ WINE_DEFAULT_DEBUG_CHANNEL(module);
+ WINE_DECLARE_DEBUG_CHANNEL(syscall);
+ 
++#if defined(__APPLE__) && defined(__x86_64__)
++#include "aoe_build_guard.h"
++extern BOOL aoe_game_verified;
++static void x87_cooperative_handshake(void);
++
++static int aoe_rosetta_supported(void)
++{
++    char release[64];
++    size_t size = sizeof(release);
++    int translated = 0;
++    if (sysctlbyname("kern.osrelease", release, &size, NULL, 0) || !size || size > sizeof(release)) return 0;
++    release[sizeof(release) - 1] = 0;
++    /* macOS 26 is Darwin 25. The recovered Rosetta hook was not validated below it. */
++    if (strtoul(release, NULL, 10) < 25) return 0;
++    size = sizeof(translated);
++    return !sysctlbyname("sysctl.proc_translated", &translated, &size, NULL, 0) && translated == 1;
++}
++
++static NTSTATUS aoe_check_image_handle(const char *name, HANDLE handle)
++{
++    int fd, needs_close, matches;
++    NTSTATUS status;
++    if (!aoe_patch_requested() || !aoe_game_name(name)) return STATUS_SUCCESS;
++    if (!aoe_rosetta_supported())
++    {
++        ERR("AoE IV experimental patches require Rosetta on macOS 26 or later\n");
++        return STATUS_NOT_SUPPORTED;
++    }
++    if ((status = server_get_unix_fd(handle, FILE_READ_DATA, &fd, &needs_close, NULL, NULL))) return status;
++    matches = aoe_hash_fd_matches(fd, aoe_supported_sha256);
++    if (needs_close) close(fd);
++    if (!matches)
++    {
++        ERR("Unsupported RelicCardinal.exe build: AoE IV experimental patches refused (SHA256 mismatch)\n");
++        return STATUS_INVALID_IMAGE_HASH;
++    }
++    aoe_game_verified = TRUE;
++    return STATUS_SUCCESS;
++}
++#endif
++
++
+ #if defined __i386__ || defined __x86_64__
+ #define SO_DLLS_SUPPORTED
+ #endif
+@@ -1471,6 +1513,11 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
+ #endif
+ 
+ 
++
++BOOL aoe_game_verified; /* Remains false until the actual executable passes the build guard. */
++#ifdef __x86_64__
++extern NTSTATUS aoe_exception_context(void *args);
++#endif
+ static const unixlib_entry_t unix_call_funcs[] =
+ {
+     load_so_dll,
+@@ -1483,6 +1530,7 @@ static const unixlib_entry_t unix_call_funcs[] =
+     system_time_precise,
+ #if defined(__x86_64__)
+     pe_module_loaded,
++    aoe_exception_context,
+ #endif
+ };
+ 
+@@ -1518,6 +1566,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
+     system_time_precise,
+ #if defined(__x86_64__)
+     wow64_pe_module_loaded,
++    NULL, /* AoE IV is x64; no 32-bit software exception thunk. */
+ #endif
+ };
+ 
+@@ -1569,6 +1618,14 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
+         return STATUS_DLL_NOT_FOUND;
+     }
+ 
++#if defined(__APPLE__) && defined(__x86_64__)
++    /* Verify the same open file used by SEC_IMAGE. No path reopen / replacement race. */
++    if ((status = aoe_check_image_handle(name, handle)))
++    {
++        NtClose(handle);
++        return status;
++    }
++#endif
+     size.QuadPart = 0;
+     status = NtCreateSection( mapping, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
+                               SECTION_MAP_READ | SECTION_MAP_EXECUTE,
+@@ -1867,6 +1924,11 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
+             info->Machine = native_machine;
+             status = STATUS_SUCCESS;
+         }
++#if defined(__APPLE__) && defined(__x86_64__)
++        if (aoe_game_verified && aoe_game_name(unix_name) &&
++            (status || info->Machine != IMAGE_FILE_MACHINE_AMD64 || *module != (void *)0x140000000ULL))
++            fatal_error("AoE IV experimental patches require the verified x64 image at 0x140000000\n");
++#endif
+         NtClose( mapping );
+     }
+     else if (status == STATUS_INVALID_IMAGE_NOT_MZ && loadorder != LO_NATIVE)
+@@ -2141,6 +2203,29 @@ static void load_ntdll(void)
+     if (status) fatal_error( "failed to load %s error %x\n", name, status );
+     free( name );
+     load_ntdll_functions( module );
++#if defined(__APPLE__) && defined(__x86_64__)
++    if (aoe_game_verified && getenv("AOELAB_SOFTFAULT_BRIDGE"))
++    {
++        const IMAGE_EXPORT_DIRECTORY *exports = get_module_data_dir(module, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL);
++        void *targets[2] = {(void *)find_named_export(module,exports,"__wine_aoe_softfault1"),(void *)find_named_export(module,exports,"__wine_aoe_softfault2")};
++        void *bridge = (void *)0x180000000ULL;
++        SIZE_T bridge_size = 4096;
++        ULONG old_protect;
++        unsigned int i;
++        if (!targets[0] || !targets[1]) fatal_error("software fault entries missing\n");
++        status = NtAllocateVirtualMemory(GetCurrentProcess(),&bridge,0,&bridge_size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
++        if (status || bridge != (void *)0x180000000ULL) fatal_error("cannot reserve software fault bridge (%x)\n",status);
++        for (i=0;i<2;i++)
++        {
++            BYTE *entry=(BYTE *)bridge+16*i;
++            entry[0]=0xff;entry[1]=0x25;
++            memset(entry+2,0,4);memcpy(entry+6,&targets[i],8);
++            entry[14]=entry[15]=0xcc;
++        }
++        status = NtProtectVirtualMemory(GetCurrentProcess(),&bridge,&bridge_size,PAGE_EXECUTE_READ,&old_protect);
++        if (status) fatal_error("cannot protect software fault bridge (%x)\n",status);
++    }
++#endif
+     if (is_arm64ec()) redirect_ntdll_functions( module );
+ }
+ 
+@@ -2336,6 +2421,17 @@ static void start_main_thread(void)
+     init_thread_stack( teb, 0, 0, 0 );
+     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
+     load_ntdll();
++#if defined(__APPLE__) && defined(__x86_64__)
++    /* AoE's decoder may call into ntdll, so attach only after the validated bridge exists. */
++    if (getenv("AOELAB_SOFTFAULT_BRIDGE"))
++    {
++        if (!aoe_game_verified) fatal_error("AoE IV softfault attach requires a verified game image\n");
++        if (!aoe_bootstrap_is_current(getenv("X87_SIDECAR_BOOTSTRAP")))
++            fatal_error("AoE IV softfault attach requires this process's cooperative bootstrap\n");
++        x87_cooperative_handshake();
++        if (getenv("X87_SIDECAR_BOOTSTRAP")) fatal_error("AoE IV cooperative attach did not complete\n");
++    }
++#endif
+     load_wow64_ntdll( main_image_info.Machine );
+     load_apiset_dll();
+ 
+@@ -2791,7 +2887,13 @@ static void x87_cooperative_handshake(void)
+     /* Block until the sidecar has done its install and replies. The receive
+      * buffer needs room for the header AND the kernel-appended trailer. */
+     memset( &rep, 0, sizeof(rep) );
+-    kr = mach_msg( &rep.reply.header, MACH_RCV_MSG, 0, sizeof(rep), reply, 30000 /*ms*/,
++    kr = mach_msg( &rep.reply.header,
++#if defined(__x86_64__)
++                   MACH_RCV_MSG | (getenv("AOELAB_SOFTFAULT_BRIDGE") ? MACH_RCV_TIMEOUT : 0),
++#else
++                   MACH_RCV_MSG,
++#endif
++                   0, sizeof(rep), reply, 30000 /*ms*/,
+                    MACH_PORT_NULL );
+     if (verbose) ERR( "x87 coop: handshake reply kr=0x%x; continuing\n", kr );
+ 
+@@ -2807,6 +2909,12 @@ static void x87_cooperative_handshake(void)
+                                        (size_t)rep.reply.icache_len[i] );
+     }
+ 
++#if defined(__x86_64__)
++    if (getenv("AOELAB_SOFTFAULT_BRIDGE") &&
++        (kr != KERN_SUCCESS || !rep.reply.icache_addr[0] || !rep.reply.icache_len[0] ||
++         !rep.reply.icache_addr[1] || !rep.reply.icache_len[1]))
++        fatal_error("AoE IV cooperative handshake failed or returned no installed hooks (%x)\n", kr);
++#endif
+     unsetenv( X87_COOP_ENV );
+ }
+ #endif
+@@ -2817,18 +2925,75 @@ static void x87_cooperative_handshake(void)
+  *
+  * Main entry point called by the wine loader.
+  */
++#if defined(__APPLE__) && defined(__x86_64__)
++/* Re-enter the x64 Wine loader through the pinned AoE-aware helper. */
++static void aoe_exec_sidecar(const char *sidecar, const char *loader, int argc, char **argv)
++{
++    char **args;
++    unsigned int i;
++    args=calloc(argc+3,sizeof(*args));
++    if (!args) fatal_error("cannot allocate software fault launch arguments\n");
++    args[0]=(char *)sidecar;args[1]="--cooperative";args[2]=(char *)loader;
++    for(i=1;i<argc;i++)args[i+2]=argv[i];
++    /* The sidecar exec discards Wine preloader reservations. Re-enter the
++     * normal preloader before server initialization, including Steam children. */
++    unsetenv("WINELOADERNOEXEC");
++    execv(sidecar,args);
++    fatal_error("cannot launch software fault translator: %s\n",strerror(errno));
++}
++
++static void aoe_reexec_sidecar(int argc, char **argv)
++{
++    const char *sidecar=getenv("AOELAB_SIDECAR_PATH"),*loader=getenv("WINELOADER");
++    if (argc<2 || !aoe_game_name(argv[1]) || !getenv("AOELAB_SOFTFAULT_GAME")) return;
++    if (aoe_bootstrap_is_current(getenv("X87_SIDECAR_BOOTSTRAP"))) return;
++    unsetenv("X87_SIDECAR_BOOTSTRAP");
++    if (!aoe_rosetta_supported()) fatal_error("AoE IV softfault hook requires Rosetta on macOS 26+\n");
++    if (!sidecar || sidecar[0]!='/' || access(sidecar,X_OK))
++        fatal_error("AoE IV softfault helper must be an absolute executable path\n");
++    if (!loader || loader[0]!='/' || access(loader,X_OK))
++        fatal_error("AoE IV WINELOADER must be an absolute executable path\n");
++    setenv("AOELAB_SOFTFAULT_BRIDGE","1",1);
++    setenv("AOE_SOFTFAULT_PC","0x140001000",1);
++    setenv("AOE_SOFTFAULT_END","0x1456ddadc",1);
++    setenv("AOE_SOFTFAULT_TARGET1","0x180000000",1);
++    setenv("AOE_SOFTFAULT_TARGET","0x180000010",1);
++    setenv("X87_ALWAYS_NONE","1",1);
++    aoe_exec_sidecar(sidecar,loader,argc,argv);
++}
++
++static void aoe_clear_child_profile(int argc, char **argv)
++{
++    static const char *const names[] = { "AOELAB_SOFTFAULT_BRIDGE", "AOE_SOFTFAULT_PC",
++        "AOE_SOFTFAULT_END", "AOE_SOFTFAULT_TARGET1", "AOE_SOFTFAULT_TARGET", "X87_ALWAYS_NONE" };
++    unsigned int i;
++    if (!getenv("AOELAB_SOFTFAULT_BRIDGE") || (argc>1 && aoe_game_name(argv[1]))) return;
++    for (i=0; i<ARRAY_SIZE(names); i++) unsetenv(names[i]);
++}
++
++#endif
++
+ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[] )
+ {
+     main_argc = argc;
+     main_argv = argv;
++#if defined(__APPLE__) && defined(__x86_64__)
++    aoe_clear_child_profile(argc,argv);
++#endif
+ 
+ #ifdef __APPLE__
+     /* CW HACK: if we were launched under `x87sidecar --cooperative`, hand our
+      * task port to the sidecar and wait for its x87 JIT hook before running. */
+-    x87_cooperative_handshake();
++#if defined(__x86_64__)
++    if (!getenv("AOELAB_SOFTFAULT_BRIDGE"))
++#endif
++        x87_cooperative_handshake();
+ #endif
+ 
+     init_paths();
++#if defined(__APPLE__) && defined(__x86_64__)
++    aoe_reexec_sidecar(argc,argv);
++#endif
+     if (!getenv( "WINELOADERNOEXEC" ) || argc <= 1) check_command_line( argc, argv );
+     unsetenv( "WINELOADERNOEXEC" );
+ 
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index a78cb2a..c0ec092 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -866,6 +866,21 @@ NTSTATUS unwind_builtin_dll( void *args )
+ }
+ 
+ 
++#include "aoe_code_cache.h"
++
++NTSTATUS aoe_exception_context(void *args)
++{
++    CONTEXT *context = args;
++    struct amd64_thread_data *data = amd64_thread_data();
++    context->SegCs = cs64_sel;
++    context->SegSs = context->SegDs = context->SegEs = context->SegGs = ds64_sel;
++    context->SegFs = data->fs;
++    context->Dr0 = data->dr0; context->Dr1 = data->dr1;
++    context->Dr2 = data->dr2; context->Dr3 = data->dr3;
++    context->Dr6 = data->dr6; context->Dr7 = data->dr7;
++    return STATUS_SUCCESS;
++}
++
+ static inline void set_sigcontext( const CONTEXT *context, ucontext_t *sigcontext )
+ {
+     RAX_sig(sigcontext) = context->Rax;
+@@ -984,7 +999,7 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
+     context->R13    = R13_sig(sigcontext);
+     context->R14    = R14_sig(sigcontext);
+     context->R15    = R15_sig(sigcontext);
+-    context->Rip    = RIP_sig(sigcontext);
++    context->Rip    = aoe_cache_logical_pc(RIP_sig(sigcontext));
+     context->SegCs  = CS_sig(sigcontext);
+     context->SegFs  = FS_sig(sigcontext);
+     context->EFlags = EFL_sig(sigcontext);
+@@ -1190,7 +1205,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
+     if (flags & CONTEXT_CONTROL)
+     {
+         frame->rsp    = context->Rsp;
+-        frame->rip    = context->Rip;
++        frame->rip    = aoe_cache_target(context->Rip);
+         frame->eflags = context->EFlags;
+     }
+     if (flags & CONTEXT_FLOATING_POINT)
+@@ -1664,7 +1679,7 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
+ {
+     struct xcontext context;
+ 
+-    rec->ExceptionAddress = (void *)RIP_sig(sigcontext);
++    rec->ExceptionAddress = (void *)aoe_cache_logical_pc(RIP_sig(sigcontext));
+     save_context( &context, sigcontext );
+     setup_raise_exception( sigcontext, rec, &context );
+ }
+@@ -2420,7 +2435,7 @@ static inline BOOL check_invalid_gsbase( ucontext_t *ucontext )
+     extern const void *__wine_syscall_dispatcher_gs_load_ptr;
+     extern const void *__wine_unix_call_dispatcher_gs_load_ptr;
+ 
+-    const void *rip = (void *)RIP_sig(ucontext);
++    const void *rip = (void *)aoe_cache_logical_pc(RIP_sig(ucontext));
+     BYTE instr[16];
+     unsigned int i, len, prefix_count = 0;
+     TEB *teb = NtCurrentTeb();
+@@ -2517,7 +2532,7 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+     EXCEPTION_RECORD rec = { 0 };
+     struct xcontext context;
+ 
+-    rec.ExceptionAddress = (void *)RIP_sig(ucontext);
++    rec.ExceptionAddress = (void *)aoe_cache_logical_pc(RIP_sig(ucontext));
+     save_context( &context, ucontext );
+ 
+     switch(TRAP_sig(ucontext))
+@@ -2615,7 +2630,7 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ 
+     if (handle_syscall_trap( ucontext, siginfo )) return;
+ 
+-    rec.ExceptionAddress = (void *)RIP_sig(ucontext);
++    rec.ExceptionAddress = (void *)aoe_cache_logical_pc(RIP_sig(ucontext));
+     save_context( &context, ucontext );
+ 
+     switch (TRAP_sig(ucontext))
+diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
+index 3a4a370..5dddcda 100644
+--- a/dlls/ntdll/unixlib.h
++++ b/dlls/ntdll/unixlib.h
+@@ -84,6 +84,7 @@ enum ntdll_unix_funcs
+     unix_system_time_precise,
+ #if defined(__x86_64__)
+     unix_pe_module_loaded,
++    unix_aoe_exception_context,
+ #endif
+ };
+ 

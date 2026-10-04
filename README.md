@@ -12,6 +12,12 @@ launchers that need Wine 11 (the EA app among them) and the games whose fixes on
 (The Last Flame, ContractVille) have their recipes name it, and the app offers it on Play. It
 never replaces an environment's engine without the user asking.
 
+## Experimental proposals
+
+The [AoE IV Rosetta proposal](proposals/aoe4/README.md) is an opt-in source port with pinned
+inputs and portable tests. It is outside the default patch series and still needs a macOS/game
+trial before adoption.
+
 ## What it builds from
 
 - **Wine:** CodeWeavers' CrossOver Wine sources, published under the LGPL with each CrossOver

@@ -1,0 +1,58 @@
+{
+  "status": "experimental proposal; no macOS or game validation",
+  "engine_commit": "5a7a000bbe468323d96bdaf9ec5edf24de15e10c",
+  "wine_source": {
+    "name": "CrossOver 26.3.0 sources (LGPL)",
+    "url": "https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz",
+    "size": 149054023,
+    "sha256": "ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872",
+    "subdir": "sources/wine"
+  },
+  "wine_fix": {
+    "repository": "https://github.com/NerRobDog/wine-aoe4",
+    "commit": "711c6fc7559a565c417aab4d52d84b09767a9c1d"
+  },
+  "sidecar": {
+    "repository": "https://github.com/NerRobDog/x87sidecar",
+    "commit": "c407ddfabbbe6bc5f5d56a258a4866ac89b04d8e"
+  },
+  "game": {
+    "executable": "RelicCardinal.exe",
+    "steam_app_id": 1466860,
+    "sha256": "5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c",
+    "preferred_image_base": "0x140000000",
+    "softfault_start": "0x140001000",
+    "softfault_end_exclusive": "0x1456ddadc",
+    "ring_pointer": "0x147af7ad0"
+  },
+  "post_highball_preimages_sha256": {
+    "dlls/ntdll/ntdll.spec": "1d077d5b2514ea86ecee0743f60ee6a68993b187a2e8076b2798286fd8cc65bf",
+    "dlls/ntdll/signal_x86_64.c": "17f21e7f75f2bd1b0a08d9e6440971164af7808ab026123cf447bb668057170d",
+    "dlls/ntdll/unix/aoe_build_guard.h": null,
+    "dlls/ntdll/unix/aoe_code_cache.h": null,
+    "dlls/ntdll/unix/aoe_hde64.h": null,
+    "dlls/ntdll/unix/aoe_hde_impl.h": null,
+    "dlls/ntdll/unix/aoe_hde_table.h": null,
+    "dlls/ntdll/unix/aoe_relocate.h": null,
+    "dlls/ntdll/unix/loader.c": "2fe28e75d7ee26ebedc6dd0bf709a6e9ca83740eb80b3f012d3c63899d2bdd9b",
+    "dlls/ntdll/unix/signal_x86_64.c": "527de8d3ad52c4712adf7685b361a53970750e2e7655693362632c896ab9576a",
+    "dlls/ntdll/unixlib.h": "63419c7fce9fc8d9f725134793457856375a72a5c43450987bc7d94aa484c0e1"
+  },
+  "highball_patches_sha256": {
+    "patches/0001-use-the-real-user-name.patch": "32f32bc1c3b270def7a0622f1fe67afdcf20d3877cd51e99be17b50817ecf1d6",
+    "patches/0002-wined3d-auto-renderer-opengl-first.patch": "011e682a90bfa3b2b0ebf6e72c5d93fbf3af674bf5c4cf05dd506622c23eb892",
+    "patches/0003-ntdll-winedllpath-prepend.patch": "8a56c17512731bd853ddc9e638761a5f9623b65e7c44bbefd89e757c3b868dc9",
+    "patches/0005-ntdll-yield-after-auto-event-set.patch": "bc2c02bb920c5f36a48e8b7a6ad15c1964ad84a2a26215aa39a99ce08f47ba2e",
+    "patches/0006-kernelbase-per-exe-command-line-append.patch": "cda40f3611a59d450b508000d0f2a9b43b5dba4030af5ce6c35180f8f4a7332b",
+    "patches/0007-winemac-cross-process-child-swapchains.patch": "cd1fe23109b5addf70d74b7c82cc837f71d99373beb28138bd8802e712d74d26",
+    "patches/0008-macos-mirror-teb-fiberdata.patch": "036980ab0a68fc516bb9eb6e156321e11c40d6e2bccc36a700937084056fed2a",
+    "patches/0009-macos-swap-fiberdata-and-qos-slot.patch": "0fcd084eb255288319d71739d69ba459fec637499cc04ab79aff8767fa8cb42c",
+    "patches/0010-mfreadwrite-video-processor-sample-allocator.patch": "d16d712a2cdbec5194ba977b649054d26ce78ea7ec760a508625b009c40b17ad",
+    "patches/0011-macos-lasterror-in-gs-slot.patch": "f9141f3ffd5a8a6d79304c5e2d7c7e400be738d7ada0a6d35647583e67c153b3",
+    "patches/0012-ntdll-x87sidecar-cooperative-attach.patch": "64a3a3dd27b2d1bef469d96fd1ed354c860138b47769f79413c8932118ef154a",
+    "patches/0013-ntdll-nx-compat-from-main-image-permanent-under-rosetta.patch": "a208a9b4826bcb87babb2e206aee12b64a50a176544442bc6406e4b605bdb7ab",
+    "patches/0014-msync-unregister-early-return.patch": "09c46f062f7e936bb331274192ce3436dbd18242a1b1618ca4944b6193158715",
+    "patches/0015-winecoreaudio-io-buffer-under-half-a-period.patch": "052b593e167ee1e732f2eeeafefc362b16612b8a247f293d903dafcd34bbe0c4",
+    "patches/0016-macos-lasterror-callback-return-once.patch": "e9d867935f62ae998a887e6694365470a35c664a098c8e7cab056219b58fe495"
+  }
+}
