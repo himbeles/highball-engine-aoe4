@@ -51,9 +51,10 @@ times can include OS cache and run-order effects.
 
 On the same D3DMetal bottle, Steam's browser GPU process repeatedly exited on both unpatched
 and patched r32. The patched build reproduced its exit code with the AoE hooks explicitly
-disabled. Both engines started Steam's browser with no recorded GPU process exits during the
-software-rendering startup check. The trial manifest applies `--disable-gpu` to
-`steamwebhelper.exe` through Highball's per-executable Wine registry defaults.
+disabled. Forcing software rendering stopped the GPU process exits, and the D3DMetal Steam
+window still displayed black. A screen recording verified that Steam's Library loaded and
+responded on both engines when Steam was started with DXMT, following Highball's existing
+[Steam window behavior](https://github.com/gauthierpiarrette/highball/issues/416).
 
 ## Build checks and remaining validation
 

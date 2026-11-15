@@ -30,9 +30,11 @@ highball engine install /path/to/aoe4-trial.json --accept-d3dmetal-license
 highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r1 --renderer d3dmetal
 ```
 
-Install Steam and AoE IV in the trial bottle and launch through Steam. The trial manifest uses
-software rendering for Steam's browser interface because its GPU subprocess can crash on r32.
-AoE IV uses the bottle's D3DMetal renderer. The graphics driver check
+Install Steam and AoE IV in the trial bottle. In the Highball app, use **Open Steam** to browse
+the Library and **Play** on the game's Highball page to launch with the bottle's D3DMetal renderer.
+From the CLI, use `highball run --renderer dxmt AoE4 Steam` to open Steam's Library. To launch the
+game with D3DMetal after browsing, quit Steam first and run
+`highball run AoE4 Steam -- -silent -applaunch 1466860`. The graphics driver check
 may display a modal because Wine presents an AMD compatibility adapter. Acknowledge it to continue.
 Check the Highball log for `AoE4 cache profile accepted` and use the bottle's counter directory
 to confirm that the game actually hit the cache.
