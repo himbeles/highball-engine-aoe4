@@ -39,8 +39,8 @@ claimed verified. Calibrating that ring is required to enable caching on a curre
 
 ## Build a trial
 
-On the fork's Actions page, choose **build-engine**, this branch, `aoe4_trial=true` and
-`publish_release=false`. This compiles Wine on the existing Intel macOS runner and cross-builds
+On the fork's Actions page, choose **aoe4-trial-build** and this branch. That wrapper always
+sets `aoe4_trial=true` and `publish_release=false`. Its first push also starts a trial build. This compiles Wine on the existing Intel macOS runner and cross-builds
 and signs the native arm64 helper. A separate Linux workflow runs the portable checks on pushes.
 The engine artifact includes:
 

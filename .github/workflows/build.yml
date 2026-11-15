@@ -2,6 +2,17 @@
 # build is green and boots a bottle through Highball; nothing in the app points here yet.
 name: build-engine
 on:
+  workflow_call:
+    inputs:
+      aoe4_trial:
+        type: boolean
+        default: true
+      publish_release:
+        type: boolean
+        default: false
+      ref_note:
+        type: string
+        default: aoe4-trial
   workflow_dispatch:
     inputs:
       aoe4_trial:
@@ -155,7 +166,7 @@ jobs:
           echo "winegstreamer.so links: $(otool -L out/engine/lib/wine/x86_64-unix/winegstreamer.so | awk 'NR > 1 && $1 !~ /^\/(usr\/lib|System)\// {printf "%s ", $1}')"
           echo "engine size: ${before} MB -> $(du -sm out/engine | cut -f1) MB"
           out/engine/bin/wine --version
-          name="engine-$(out/engine/bin/wine --version | tr ' ()' '-' | tr -s '-' | sed 's/-$//')-$(date -u +%Y%m%dT%H%M%SZ)-${{ github.event.inputs.ref_note }}"
+          name="engine-$(out/engine/bin/wine --version | tr ' ()' '-' | tr -s '-' | sed 's/-$//')-$(date -u +%Y%m%dT%H%M%SZ)-${{ inputs.ref_note }}"
           tar -C out -czf "${name}.tar.gz" .
           shasum -a 256 "${name}.tar.gz" | tee "${name}.tar.gz.sha256"
           ls -la "${name}.tar.gz"
@@ -194,7 +205,7 @@ jobs:
             aoe4-engine.json
           retention-days: 14
       - name: publish release
-        if: ${{ github.event.inputs.publish_release == 'true' }}
+        if: ${{ inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

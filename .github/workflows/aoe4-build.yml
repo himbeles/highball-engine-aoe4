@@ -1,0 +1,18 @@
+name: aoe4-trial-build
+on:
+  push:
+    branches: ["proposal/aoe4-rosetta-fixes"]
+    paths: [".github/workflows/aoe4-build.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: aoe4-trial-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  trial:
+    uses: ./.github/workflows/build.yml
+    with:
+      aoe4_trial: true
+      publish_release: false
+      ref_note: aoe4-trial
