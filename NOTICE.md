@@ -4,6 +4,8 @@
 |---|---|---|---|
 | Wine (CrossOver sources) | media.codeweavers.com/pub/crossover/source | LGPL-2.1-or-later | yes, as the engine |
 | Highball patch series | patches/ | LGPL-2.1-or-later | yes |
+| AoE IV trial Wine patch and HDE x86 decoder | proposals/aoe4/patches/ | LGPL-2.1-or-later and BSD-3-Clause | AoE IV trial only |
+| AoE IV trial x87sidecar and combined decoder fixes | proposals/aoe4/inputs.lock.json and proposals/aoe4/sidecar-patches/ | MIT | AoE IV trial only |
 | Highball patch series of the arm64 line | patches-arm64/ (Wine), fex/patches/ (FEX), moltenvk-arm64/ (MoltenVK, SPIRV-Cross), renderers-arm64/ (vkd3d-proton, DXVK) | the licence of the component each patch changes | yes |
 | MoltenVK (the Intel line's build, and 1.4.2 with moltenvk-arm64/moltenvk/ for the arm64 line) | github.com/KhronosGroup/MoltenVK | Apache-2.0 | yes |
 | SPIRV-Cross (built into the arm64 line's MoltenVK, with moltenvk-arm64/spirv-cross/) | github.com/KhronosGroup/SPIRV-Cross | Apache-2.0 | yes, inside MoltenVK |

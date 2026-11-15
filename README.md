@@ -137,6 +137,12 @@ on real x86-64 Windows (the `x64-fidelity` workflow runs them there, and on Wind
 emulation for comparison). Each engine fix in `patches-arm64/0022` onwards and in `fex/patches/`
 comes from one of their checks; the READMEs beside the patches say which, and what is left open.
 
+## Age of Empires IV trial
+
+The [AoE IV Rosetta trial](proposals/aoe4/README.md) adds a separate manual build option for
+the Intel Wine 11 engine. It includes the combined decoder, version-bound generated-code
+cache and [local benchmark results](proposals/aoe4/VALIDATION.md).
+
 ## Releases
 
 A dispatch with `publish_release=true` creates a GitHub release tagged with the artifact's file name (for the Intel line `engine-wine-<version>-<date>-<note>`), with the tarball and its `.sha256`. The arm64 engine, its renderers and its MoltenVK are released by their own workflows the same way. Highball's engine manifests (`spike/engines/<id>.json` in the app repository) name the tarball's URL, size and checksum, and extract its `engine/` subtree; the app never builds anything itself. Nothing is published by a push or a merge.

@@ -4,6 +4,10 @@ name: build-engine
 on:
   workflow_dispatch:
     inputs:
+      aoe4_trial:
+        description: "Build the experimental AoE IV Wine patch and helper as trial artifacts"
+        type: boolean
+        default: false
       publish_release:
         description: "Publish the tarball as a GitHub release (tag engine-<wine version>-<date>)"
         type: boolean
@@ -24,8 +28,14 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
+      - name: Require an artifact-only AoE IV trial
+        if: ${{ inputs.aoe4_trial && inputs.publish_release }}
+        run: |
+          echo 'Set publish_release=false for an AoE IV trial.' >&2
+          exit 1
       - uses: actions/checkout@v4
       - name: pinned source
+        if: ${{ !inputs.aoe4_trial }}
         run: |
           set -euo pipefail
           url=$(python3 -c 'import json;print(json.load(open("inputs.json"))["wine"]["url"])')
@@ -35,10 +45,25 @@ jobs:
           mkdir -p src && tar -xzf crossover-sources.tar.gz -C src
           ls src/sources/wine | head -3
       - name: apply patch series
+        if: ${{ !inputs.aoe4_trial }}
         run: |
           set -euo pipefail
           cd src/sources/wine
           for p in ../../../patches/*.patch; do [ -e "$p" ] || continue; echo "applying $p"; patch -p1 < "$p"; done
+      - name: AoE IV pinned source and tests
+        if: ${{ inputs.aoe4_trial }}
+        run: |
+          set -euo pipefail
+          url=$(python3 -c 'import json; print(json.load(open("proposals/aoe4/inputs.lock.json"))["wine_source"]["url"])')
+          curl --fail --location -o crossover-sources.tar.gz "$url"
+          python3 proposals/aoe4/prepare-source.py crossover-sources.tar.gz src
+          proposals/aoe4/tests/run.sh "$PWD/src/sources/wine"
+          python3 proposals/aoe4/tests/test_tools.py
+      - name: AoE IV combined arm64 helper
+        if: ${{ inputs.aoe4_trial }}
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          proposals/aoe4/build-sidecar.sh "$RUNNER_TEMP/aoe4-helper-build"
       - name: toolchain
         run: |
           set -euo pipefail
@@ -50,7 +75,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('inputs.json', 'patches/**') }}
+          key: ccache-${{ runner.os }}-${{ hashFiles('inputs.json', 'patches/**') }}${{ inputs.aoe4_trial && format('-aoe4-{0}', hashFiles('proposals/aoe4/patches/**')) || '' }}
           restore-keys: ccache-${{ runner.os }}-
       # The 32-bit PE side is built for SSE2 maths, as Windows' own DLLs are. GCC's i686 default is
       # the x87 unit, which Rosetta runs slowly, and every 32-bit game pays it in Wine's own audio
@@ -141,19 +166,49 @@ jobs:
           echo "winegstreamer.so links: $(otool -L out/engine/lib/wine/x86_64-unix/winegstreamer.so | awk 'NR > 1 && $1 !~ /^\/(usr\/lib|System)\// {printf "%s ", $1}')"
           echo "engine size: ${before} MB -> $(du -sm out/engine | cut -f1) MB"
           out/engine/bin/wine --version
-          name="engine-$(out/engine/bin/wine --version | tr ' ()' '-' | tr -s '-' | sed 's/-$//')-$(date -u +%Y%m%dT%H%M%SZ)-${{ github.event.inputs.ref_note }}"
+      - name: AoE IV decoder notice
+        if: ${{ inputs.aoe4_trial }}
+        run: cp proposals/aoe4/Licenses/HDE-LICENSE.txt out/engine/share/wine/
+      - name: Engine archive
+        env:
+          BUILD_NOTE: ${{ inputs.aoe4_trial && 'aoe4-trial' || inputs.ref_note }}
+        run: |
+          set -euo pipefail
+          name="engine-$(out/engine/bin/wine --version | tr ' ()' '-' | tr -s '-' | sed 's/-$//')-$(date -u +%Y%m%dT%H%M%SZ)-$BUILD_NOTE"
           tar -C out -czf "${name}.tar.gz" .
           shasum -a 256 "${name}.tar.gz" | tee "${name}.tar.gz.sha256"
           ls -la "${name}.tar.gz"
+      - name: AoE IV helper archive and corresponding source
+        if: ${{ inputs.aoe4_trial }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/aoe4-package"
+          mkdir -p "$work/aoe4/profiles" "$work/aoe4/Licenses" "$work/corresponding-source/proposals"
+          cp "$RUNNER_TEMP/aoe4-helper-build/build/bin/x87sidecar" "$work/aoe4/"
+          cp proposals/aoe4/profiles/*.cache "$work/aoe4/profiles/"
+          cp proposals/aoe4/Licenses/x87sidecar-MIT.txt "$work/aoe4/Licenses/"
+          cp proposals/aoe4/inputs.lock.json "$work/aoe4/"
+          codesign --verify --strict "$work/aoe4/x87sidecar"
+          tar -czf aoe4-helper.tar.gz -C "$work" aoe4
+          shasum -a 256 aoe4-helper.tar.gz > aoe4-helper.tar.gz.sha256
+          cp crossover-sources.tar.gz "$work/corresponding-source/"
+          cp -R patches inputs.json LICENSE NOTICE.md "$work/corresponding-source/"
+          cp -R proposals/aoe4 "$work/corresponding-source/proposals/"
+          tar --exclude=.git --exclude=build -czf "$work/corresponding-source/sidecar-patched.tar.gz" -C "$RUNNER_TEMP/aoe4-helper-build/source" .
+          tar -czf aoe4-corresponding-source.tar.gz -C "$work" corresponding-source
+          shasum -a 256 aoe4-corresponding-source.tar.gz > aoe4-corresponding-source.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: engine
           path: |
             engine-*.tar.gz
             engine-*.tar.gz.sha256
+            aoe4-helper.tar.gz*
+            aoe4-corresponding-source.tar.gz*
           retention-days: 14
       - name: publish release
-        if: ${{ github.event.inputs.publish_release == 'true' }}
+        if: ${{ inputs.publish_release && !inputs.aoe4_trial }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
