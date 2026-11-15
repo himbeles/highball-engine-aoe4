@@ -117,10 +117,10 @@ index a5bbbae..f5582a0 100644
                     __ASM_CFI(".cfi_adjust_cfa_offset 8\n\t")
 diff --git a/dlls/ntdll/unix/aoe_build_guard.h b/dlls/ntdll/unix/aoe_build_guard.h
 new file mode 100644
-index 0000000..daaad6d
+index 0000000..717486b
 --- /dev/null
 +++ b/dlls/ntdll/unix/aoe_build_guard.h
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,156 @@
 +/* AoE IV build eligibility for the experimental Highball engine proposal.
 + * Copyright 2026 Highball engine proposal contributors.
 + * LGPL-2.1-or-later. Hash the same file descriptor Wine will map, not a reopened path. */
@@ -163,6 +163,22 @@ index 0000000..daaad6d
 +        (getenv("AOELAB_SOFTFAULT_GAME") != NULL || getenv("AOELAB_CODE_CACHE_GAME") != NULL);
 +}
 +
++static int aoe_same_file_state(const struct stat *first, const struct stat *second)
++{
++    struct stat before=*first, after=*second;
++    if (before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
++        before.st_size != after.st_size || before.st_mtime != after.st_mtime ||
++        before.st_ctime != after.st_ctime) return 0;
++#ifdef __APPLE__
++    if (before.st_mtimespec.tv_nsec != after.st_mtimespec.tv_nsec ||
++        before.st_ctimespec.tv_nsec != after.st_ctimespec.tv_nsec) return 0;
++#else
++    if (before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
++        before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) return 0;
++#endif
++    return 1;
++}
++
 +static int aoe_hash_fd(int fd, unsigned char digest[32])
 +{
 +    unsigned char buffer[65536];
@@ -183,16 +199,7 @@ index 0000000..daaad6d
 +        offset += count;
 +    }
 +    if (offset != before.st_size || fstat(fd, &after)) return 0;
-+    if (before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
-+        before.st_size != after.st_size || before.st_mtime != after.st_mtime ||
-+        before.st_ctime != after.st_ctime) return 0;
-+#ifdef __APPLE__
-+    if (before.st_mtimespec.tv_nsec != after.st_mtimespec.tv_nsec ||
-+        before.st_ctimespec.tv_nsec != after.st_ctimespec.tv_nsec) return 0;
-+#else
-+    if (before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
-+        before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) return 0;
-+#endif
++    if (!aoe_same_file_state(&before,&after)) return 0;
 +    return CC_SHA256_Final(digest, &context);
 +}
 +
@@ -1281,7 +1288,7 @@ index 0000000..50ccb83
 + for(i=0;i<k->count;i++){int64_t delta=(int64_t)k->targets[i]-(int64_t)(pc+k->ends[i]);int32_t d;if(delta<INT32_MIN||delta>INT32_MAX)return 0;d=delta;memcpy(output+k->offsets[i],&d,4);}return 1;
 +}
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 1b3f483..24b2aff 100644
+index 1b3f483..bc581f8 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -25,6 +25,8 @@
@@ -1293,7 +1300,7 @@ index 1b3f483..24b2aff 100644
  #include <errno.h>
  #include <fcntl.h>
  #include <stdarg.h>
-@@ -101,6 +103,78 @@
+@@ -101,6 +103,80 @@
  WINE_DEFAULT_DEBUG_CHANNEL(module);
  WINE_DECLARE_DEBUG_CHANNEL(syscall);
  
@@ -1320,7 +1327,9 @@ index 1b3f483..24b2aff 100644
 +static int aoe_inspect_game(int fd, char digest[65], struct aoe_image_layout *image)
 +{
 +    unsigned char bytes[32];
-+    if (!aoe_read_layout(fd,image) || !aoe_hash_fd(fd,bytes)) return 0;
++    struct stat before,after;
++    if (fstat(fd,&before) || !aoe_read_layout(fd,image) || !aoe_hash_fd(fd,bytes) ||
++        fstat(fd,&after) || !aoe_same_file_state(&before,&after)) return 0;
 +    aoe_digest_hex(bytes,digest);
 +    return 1;
 +}
@@ -1372,7 +1381,7 @@ index 1b3f483..24b2aff 100644
  #if defined __i386__ || defined __x86_64__
  #define SO_DLLS_SUPPORTED
  #endif
-@@ -1471,6 +1545,12 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
+@@ -1471,6 +1547,12 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
  #endif
  
  
@@ -1385,7 +1394,7 @@ index 1b3f483..24b2aff 100644
  static const unixlib_entry_t unix_call_funcs[] =
  {
      load_so_dll,
-@@ -1483,6 +1563,7 @@ static const unixlib_entry_t unix_call_funcs[] =
+@@ -1483,6 +1565,7 @@ static const unixlib_entry_t unix_call_funcs[] =
      system_time_precise,
  #if defined(__x86_64__)
      pe_module_loaded,
@@ -1393,7 +1402,7 @@ index 1b3f483..24b2aff 100644
  #endif
  };
  
-@@ -1518,6 +1599,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
+@@ -1518,6 +1601,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
      system_time_precise,
  #if defined(__x86_64__)
      wow64_pe_module_loaded,
@@ -1401,7 +1410,7 @@ index 1b3f483..24b2aff 100644
  #endif
  };
  
-@@ -1569,6 +1651,14 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
+@@ -1569,6 +1653,14 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
          return STATUS_DLL_NOT_FOUND;
      }
  
@@ -1416,7 +1425,7 @@ index 1b3f483..24b2aff 100644
      size.QuadPart = 0;
      status = NtCreateSection( mapping, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
                                SECTION_MAP_READ | SECTION_MAP_EXECUTE,
-@@ -1867,6 +1957,11 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
+@@ -1867,6 +1959,11 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
              info->Machine = native_machine;
              status = STATUS_SUCCESS;
          }
@@ -1428,7 +1437,7 @@ index 1b3f483..24b2aff 100644
          NtClose( mapping );
      }
      else if (status == STATUS_INVALID_IMAGE_NOT_MZ && loadorder != LO_NATIVE)
-@@ -2141,6 +2236,29 @@ static void load_ntdll(void)
+@@ -2141,6 +2238,29 @@ static void load_ntdll(void)
      if (status) fatal_error( "failed to load %s error %x\n", name, status );
      free( name );
      load_ntdll_functions( module );
@@ -1458,7 +1467,7 @@ index 1b3f483..24b2aff 100644
      if (is_arm64ec()) redirect_ntdll_functions( module );
  }
  
-@@ -2336,6 +2454,17 @@ static void start_main_thread(void)
+@@ -2336,6 +2456,17 @@ static void start_main_thread(void)
      init_thread_stack( teb, 0, 0, 0 );
      NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
      load_ntdll();
@@ -1476,7 +1485,7 @@ index 1b3f483..24b2aff 100644
      load_wow64_ntdll( main_image_info.Machine );
      load_apiset_dll();
  
-@@ -2816,8 +2945,8 @@ static void x87_cooperative_handshake(void)
+@@ -2816,8 +2947,8 @@ static void x87_cooperative_handshake(void)
       * notification to the reply port instead, which has a different id and
       * size. */
      memset( &rep, 0, sizeof(rep) );
@@ -1487,7 +1496,7 @@ index 1b3f483..24b2aff 100644
      if (verbose) ERR( "x87 coop: handshake reply kr=0x%x id=0x%x size=%u\n", kr,
                        rep.reply.header.msgh_id, rep.reply.header.msgh_size );
  
-@@ -2846,6 +2975,14 @@ done:
+@@ -2846,6 +2977,14 @@ done:
      /* Destroy the reply port, so that a late reply finds no receiver. */
      if (reply != MACH_PORT_NULL) mach_port_mod_refs( mach_task_self(), reply, MACH_PORT_RIGHT_RECEIVE, -1 );
      if (service != MACH_PORT_NULL) mach_port_deallocate( mach_task_self(), service );
@@ -1502,7 +1511,7 @@ index 1b3f483..24b2aff 100644
      if (reason[0]) x87_coop_unhooked( reason );
      unsetenv( X87_COOP_ENV );
  }
-@@ -2857,18 +2994,105 @@ done:
+@@ -2857,18 +2996,105 @@ done:
   *
   * Main entry point called by the wine loader.
   */
