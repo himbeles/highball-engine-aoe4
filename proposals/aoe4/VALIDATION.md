@@ -47,6 +47,14 @@ The cache-enabled trace added 1,354,730 hits, with zero new entries and zero rec
 fallbacks. The disabled process logged the override and produced no cache counters. Loading
 times can include OS cache and run-order effects.
 
+## Steam browser startup
+
+On the same D3DMetal bottle, Steam's browser GPU process repeatedly exited on both unpatched
+and patched r32. The patched build reproduced its exit code with the AoE hooks explicitly
+disabled. Both engines started Steam's browser with no recorded GPU process exits during the
+software-rendering startup check. The trial manifest applies `--disable-gpu` to
+`steamwebhelper.exe` through Highball's per-executable Wine registry defaults.
+
 ## Build checks and remaining validation
 
 - The [prototype Intel macOS build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/43691361823)

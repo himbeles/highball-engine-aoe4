@@ -38,6 +38,7 @@ class Tools(unittest.TestCase):
                 self.assertEqual(m['components'][key]['url'],path.resolve().as_uri())
             self.assertEqual(m['id'],'x64-crossover26.3-aoe4-r1')
             self.assertGreater(m['components']['aoe4-helper']['order'], m['components']['runtime'].get('order', 0))
+            self.assertEqual(m['appDefaults']['steamwebhelper.exe']['CommandLineAppend'], '--disable-gpu')
             self.assertEqual(m["baseEnv"]["AOELAB_CODE_CACHE_GAME"],"1")
             self.assertIn("apple-gptk-license-2023-08-17",m["licenses"])
             with tarfile.open(helper,'w:gz'):pass

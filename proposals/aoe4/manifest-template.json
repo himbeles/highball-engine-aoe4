@@ -1,5 +1,10 @@
 {
   "$schema": "https://highball.app/schemas/engine-manifest/v0",
+  "appDefaults": {
+    "steamwebhelper.exe": {
+      "CommandLineAppend": "--disable-gpu"
+    }
+  },
   "arch": "x86_64",
   "baseEnv": {
     "DYLD_FALLBACK_FRAMEWORK_PATH": "${frameworks}",
