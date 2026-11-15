@@ -2,22 +2,10 @@
 # build is green and boots a bottle through Highball; nothing in the app points here yet.
 name: build-engine
 on:
-  workflow_dispatch:
-    inputs:
-      aoe4_trial:
-        description: "Build the experimental AoE IV Wine patch and helper as trial artifacts"
-        type: boolean
-        default: false
-      publish_release:
-        description: "Publish the tarball as a GitHub release (tag engine-<wine version>-<date>)"
-        type: boolean
-        default: false
-      ref_note:
-        description: "why this build (free text, goes in the artifact name)"
-        required: false
-        default: "manual"
+  push:
+    branches: ["build/aoe4-3f2bd4f"]
 permissions:
-  contents: write   # the optional release step creates a release and uploads the tarball
+  contents: read
 jobs:
   build:
     # Intel runner on purpose: the Unix side of this tree is x86_64 only (the Mac driver's
@@ -28,30 +16,8 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
-      - name: Require an artifact-only AoE IV trial
-        if: ${{ inputs.aoe4_trial && inputs.publish_release }}
-        run: |
-          echo 'Set publish_release=false for an AoE IV trial.' >&2
-          exit 1
       - uses: actions/checkout@v4
-      - name: pinned source
-        if: ${{ !inputs.aoe4_trial }}
-        run: |
-          set -euo pipefail
-          url=$(python3 -c 'import json;print(json.load(open("inputs.json"))["wine"]["url"])')
-          sha=$(python3 -c 'import json;print(json.load(open("inputs.json"))["wine"]["sha256"])')
-          curl -sSL -o crossover-sources.tar.gz "$url"
-          echo "$sha  crossover-sources.tar.gz" | shasum -a 256 -c -
-          mkdir -p src && tar -xzf crossover-sources.tar.gz -C src
-          ls src/sources/wine | head -3
-      - name: apply patch series
-        if: ${{ !inputs.aoe4_trial }}
-        run: |
-          set -euo pipefail
-          cd src/sources/wine
-          for p in ../../../patches/*.patch; do [ -e "$p" ] || continue; echo "applying $p"; patch -p1 < "$p"; done
       - name: AoE IV pinned source and tests
-        if: ${{ inputs.aoe4_trial }}
         run: |
           set -euo pipefail
           url=$(python3 -c 'import json; print(json.load(open("proposals/aoe4/inputs.lock.json"))["wine_source"]["url"])')
@@ -60,7 +26,6 @@ jobs:
           proposals/aoe4/tests/run.sh "$PWD/src/sources/wine"
           python3 proposals/aoe4/tests/test_tools.py
       - name: AoE IV combined arm64 helper
-        if: ${{ inputs.aoe4_trial }}
         run: |
           command -v cmake >/dev/null || brew install cmake
           proposals/aoe4/build-sidecar.sh "$RUNNER_TEMP/aoe4-helper-build"
@@ -75,7 +40,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('inputs.json', 'patches/**') }}${{ inputs.aoe4_trial && format('-aoe4-{0}', hashFiles('proposals/aoe4/patches/**')) || '' }}
+          key: ccache-${{ runner.os }}-${{ hashFiles('inputs.json', 'patches/**') }}-aoe4-${{ hashFiles('proposals/aoe4/patches/**') }}
           restore-keys: ccache-${{ runner.os }}-
       # The 32-bit PE side is built for SSE2 maths, as Windows' own DLLs are. GCC's i686 default is
       # the x87 unit, which Rosetta runs slowly, and every 32-bit game pays it in Wine's own audio
@@ -167,11 +132,10 @@ jobs:
           echo "engine size: ${before} MB -> $(du -sm out/engine | cut -f1) MB"
           out/engine/bin/wine --version
       - name: AoE IV decoder notice
-        if: ${{ inputs.aoe4_trial }}
         run: cp proposals/aoe4/Licenses/HDE-LICENSE.txt out/engine/share/wine/
       - name: Engine archive
         env:
-          BUILD_NOTE: ${{ inputs.aoe4_trial && 'aoe4-trial' || inputs.ref_note }}
+          BUILD_NOTE: aoe4-trial
         run: |
           set -euo pipefail
           name="engine-$(out/engine/bin/wine --version | tr ' ()' '-' | tr -s '-' | sed 's/-$//')-$(date -u +%Y%m%dT%H%M%SZ)-$BUILD_NOTE"
@@ -179,7 +143,6 @@ jobs:
           shasum -a 256 "${name}.tar.gz" | tee "${name}.tar.gz.sha256"
           ls -la "${name}.tar.gz"
       - name: AoE IV helper archive and corresponding source
-        if: ${{ inputs.aoe4_trial }}
         shell: bash
         run: |
           set -euo pipefail
@@ -207,12 +170,3 @@ jobs:
             aoe4-helper.tar.gz*
             aoe4-corresponding-source.tar.gz*
           retention-days: 14
-      - name: publish release
-        if: ${{ inputs.publish_release && !inputs.aoe4_trial }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          f=$(ls engine-*.tar.gz | head -1)
-          tag="${f%.tar.gz}"
-          gh release create "$tag" "$f" "$f.sha256" --title "$tag" --notes "Wine from the pinned CrossOver source (inputs.json) with the patch series in patches/. Built by run ${{ github.run_id }}. Checksum in the .sha256 file."
