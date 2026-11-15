@@ -2,6 +2,32 @@
 import hashlib,io,json,pathlib,struct,subprocess,sys,tarfile,tempfile,unittest
 HERE=pathlib.Path(__file__).resolve().parents[1]
 class Tools(unittest.TestCase):
+    def test_patch_applies_inside_an_enclosing_git_checkout(self):
+        filename = 'dlls/ntdll/unix/aoe_ring_discovery.h'
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            subprocess.run(['git', 'init', '--quiet', str(root)], check=True)
+            source = root / 'src' / 'sources' / 'wine'
+            (source / filename).parent.mkdir(parents=True)
+            tools = root / 'proposal'
+            patches = tools / 'patches'
+            patches.mkdir(parents=True)
+            (tools / 'apply.py').write_bytes((HERE / 'apply.py').read_bytes())
+            (tools / 'inputs.lock.json').write_text(json.dumps({
+                'post_highball_preimages_sha256': {filename: None},
+            }))
+            patch = f'''diff --git a/{filename} b/{filename}
+new file mode 100644
+--- /dev/null
++++ b/{filename}
+@@ -0,0 +1 @@
++/* ring discovery */
+'''
+            (patches / '0031-aoe4-rosetta-profile-cache.patch').write_text(patch)
+            subprocess.run([sys.executable, str(tools / 'apply.py'), str(source)], check=True,
+                           capture_output=True)
+            self.assertEqual((source / filename).read_text(), '/* ring discovery */\n')
+
     def command(self,tool,*args,ok=True):
         result=subprocess.run([sys.executable,str(HERE/tool),*map(str,args)],capture_output=True,text=True)
         self.assertEqual(result.returncode==0,ok,result.stdout+result.stderr)
