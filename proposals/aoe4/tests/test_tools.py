@@ -36,6 +36,7 @@ class Tools(unittest.TestCase):
                 self.assertEqual(m['components'][key]['sha256'],hashlib.sha256(path.read_bytes()).hexdigest())
                 self.assertEqual(m['components'][key]['size'],path.stat().st_size)
             self.assertEqual(m['id'],'x64-crossover26.3-aoe4-r1')
+            self.assertEqual(m["baseEnv"]["AOELAB_CODE_CACHE_GAME"],"1")
             self.assertIn("apple-gptk-license-2023-08-17",m["licenses"])
             self.command('make-manifest.py',*args[:-1],'https://example.com/trial',ok=False)
             with tarfile.open(helper,'w:gz'):pass

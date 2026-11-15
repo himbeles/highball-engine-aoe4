@@ -67,12 +67,14 @@ python3 proposals/aoe4/make-manifest.py --wine engine-....tar.gz --helper aoe4-h
   --output aoe4-engine.json
 highball engine install aoe4-engine.json --accept-d3dmetal-license
 highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r1 --renderer d3dmetal
-highball recipe apply AoE4 /absolute/path/to/recipe-trial.json
 ```
 
-Check `highball recipe apply --help` for the CLI shipped with your app. `recipe-trial.json` is
-local test data, not a submission-ready verified recipe; it intentionally has no invented
-`lastVerified`. Install/launch Steam and your own AoE IV normally in this dedicated environment.
+Install/launch Steam and your own AoE IV normally in this dedicated environment. The distinct
+engine manifest sets the AoE flags itself; Wine gates them to `RelicCardinal.exe`. This works
+before Highball's database knows this game or its recipe. `recipe-trial.json` is future/local
+recipe data, not a submission-ready verified recipe; it intentionally has no invented
+`lastVerified`. A local game recipe alone would not activate scoped flags through the app without
+a matching database entry; the engine flags remove that dependency for this trial.
 The manifest resolves the helper/profile paths through `${frameworks}`, so no user-specific
 absolute paths or app changes are needed. Wine resolves its own loader after `init_paths`.
 
@@ -122,7 +124,10 @@ must be refreshed intentionally when rebasing, rather than bypassing failed chec
 The profile-writing tool checks the file hash and pointer's section/alignment. It cannot validate
 live allocation size, slot semantics or game correctness. No automatic scanning heuristic turns
 caching on. `AOELAB_CODE_CACHE_GAME=0` still enables it (presence-based original flag); unset it
-for softfault+x87-only tests. Unset both game flags for the baseline engine behavior.
+for ordinary recipes. This trial manifest supplies both flags, so use bottle overrides
+`AOE4_CACHE=0` for combined without cache, `AOE4_X87=0` for softfault-only, and
+`AOE4_DISABLED=1` for the unmodified launch path. Stop the environment between comparisons.
+For example: `highball bottle set AoE4 env AOE4_CACHE=0`.
 
 ## Acceptance before upstream integration
 

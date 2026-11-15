@@ -8,7 +8,10 @@
     "WINEDEBUG": "fixme-all",
     "DXMT_ALLOW_CROSS_PROCESS_SWAPCHAIN": "1",
     "AOELAB_SIDECAR_PATH": "${frameworks}/aoe4/x87sidecar",
-    "AOE4_PROFILE_DIR": "${frameworks}/aoe4/profiles"
+    "AOE4_PROFILE_DIR": "${frameworks}/aoe4/profiles",
+    "AOELAB_SOFTFAULT_GAME": "1",
+    "AOELAB_CODE_CACHE_GAME": "1",
+    "AOELAB_COUNTERS_DIR": "${environment}/aoe4-counters"
   },
   "components": {
     "d3dmetal-tsshim": {

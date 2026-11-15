@@ -19,6 +19,7 @@ int main(void)
     setenv("AOELAB_CODE_CACHE_GAME","0",1);assert(aoe_patch_requested());
     unsetenv("AOELAB_CODE_CACHE_GAME");setenv("AOELAB_SOFTFAULT_GAME","1",1);
     assert(aoe_patch_requested());
+    setenv("AOE4_DISABLED","1",1);assert(!aoe_patch_requested());unsetenv("AOE4_DISABLED");
     snprintf(bootstrap,sizeof(bootstrap),"x87sidecar.%ld",(long)getpid());
     assert(aoe_bootstrap_is_current(bootstrap));
     assert(!aoe_bootstrap_is_current(NULL) && !aoe_bootstrap_is_current("x87sidecar.0"));
