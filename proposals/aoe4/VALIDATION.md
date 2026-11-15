@@ -1,6 +1,6 @@
 # Verification record
 
-Date: 2026-11-15. Host: Linux x86_64. Wine baseline: Highball engine
+Date: 2026-11-15. Local host: Linux x86_64; CI: hosted Intel macOS runner. Wine baseline: Highball engine
 `161d7a8495d041d2901d07ff3b4fffeed9be1a4b`, pinned CrossOver 26.3 sources.
 Status: implementation in a fork; no PR, release or game verification claimed.
 
@@ -20,6 +20,17 @@ Performed:
   missing engine/helper files and preserve Highball's Apple licence declaration.
 - GCC C syntax check of the modified PE signal source against Wine's headers; workflow YAML and
   shell syntax checks. These do not establish macOS linking, native sidecar execution or gameplay.
+
+CI evidence:
+
+- Portable CI passed at `d98b0fa`:
+  https://github.com/himbeles/highball-engine-aoe4/actions/runs/43691279746
+- The macOS trial at `f941ea7` compiled the patched arm64 helper and all three changed ntdll
+  objects (Unix loader, Unix signal handler and x64 PE signal/assembly object) successfully.
+  Its remaining full build was superseded by the final file-state-check revision.
+- The final revision's full, non-publishing trial is:
+  https://github.com/himbeles/highball-engine-aoe4/actions/runs/43691361823
+  Its outcome must be checked before calling the complete engine build verified.
 
 Remaining:
 
