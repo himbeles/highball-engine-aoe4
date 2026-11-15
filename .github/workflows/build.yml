@@ -84,7 +84,7 @@ jobs:
       # Windows ABI only promises a 4-byte aligned stack on i386, so GCC realigns where it spills.
       # OpenGL is not passed explicitly: configure then treats the missing EGL headers
       # (there is no EGL on macOS) as a notice, and the Mac driver links OpenGL.framework.
-      - name: configure and build
+      - name: configure
         run: |
           set -euo pipefail
           mkdir -p build && cd build
@@ -101,8 +101,16 @@ jobs:
             CROSSCC="ccache x86_64-w64-mingw32-gcc" \
             i386_CC="ccache i686-w64-mingw32-gcc" x86_64_CC="ccache x86_64-w64-mingw32-gcc" \
             i386_CFLAGS="-g -O2 -msse2 -mfpmath=sse -mincoming-stack-boundary=2"
-          make -j"$(sysctl -n hw.ncpu)"
-          make install-lib
+      - name: AoE changed ntdll objects
+        if: ${{ inputs.aoe4_trial }}
+        run: |
+          make -C build -j"$(sysctl -n hw.ncpu)" \
+            dlls/ntdll/unix/loader.o dlls/ntdll/unix/signal_x86_64.o \
+            dlls/ntdll/x86_64-windows/signal_x86_64.o
+      - name: build and install
+        run: |
+          make -C build -j"$(sysctl -n hw.ncpu)"
+          make -C build install-lib
       - name: engine layout
         run: |
           set -euo pipefail
