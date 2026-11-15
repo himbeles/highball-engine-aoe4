@@ -128,7 +128,7 @@
       }
     }
   },
-  "displayName": "Wine 11 — AoE IV trial r1",
+  "displayName": "Wine 11 — AoE IV r1",
   "id": "x64-crossover26.3-aoe4-r1",
   "licenses": {
     "apple-gptk-license-2023-08-17": {
@@ -141,7 +141,7 @@
   },
   "minMacOS": "26.0",
   "notes": [
-    "Experimental AoE IV fork. macOS build/gameplay acceptance pending. Game updates require measured SHA256-bound cache profiles."
+    "Age of Empires IV engine for Rosetta. Uses measured profiles and validates automatically discovered code rings on compatible game updates."
   ],
   "requires": [
     "rosetta2"

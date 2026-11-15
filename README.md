@@ -137,11 +137,12 @@ on real x86-64 Windows (the `x64-fidelity` workflow runs them there, and on Wind
 emulation for comparison). Each engine fix in `patches-arm64/0022` onwards and in `fex/patches/`
 comes from one of their checks; the READMEs beside the patches say which, and what is left open.
 
-## Age of Empires IV trial
+## Age of Empires IV engine
 
-The [AoE IV Rosetta trial](proposals/aoe4/README.md) adds a separate manual build option for
-the Intel Wine 11 engine. It includes the combined decoder, version-bound generated-code
-cache and [local benchmark results](proposals/aoe4/VALIDATION.md).
+The [Age of Empires IV engine](proposals/aoe4/README.md) uses Intel Wine 11 on Rosetta.
+Its combined decoder and adaptive generated-code cache are packaged for Highball.
+See the [r1 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r1)
+and the [validation results](proposals/aoe4/VALIDATION.md).
 
 ## Releases
 

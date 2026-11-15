@@ -1,11 +1,11 @@
-# AoE IV trial validation
+# AoE IV engine validation
 
 Tested on an Apple M2 Max running macOS 27.2.1 (26B131), with Rosetta and D3DMetal at
 2560×1440 display output. AoE IV 17.0.12303.0 was Steam build 26559323. Its executable SHA-256
 was `e047891780ec9a01e39185803288578b8385419e93c97b2216ebd24ee2bc1469`. Live inspection
 confirmed the pointer at RVA `0x7c9f9d8`, the 16 MiB ring and 32-byte slots.
 
-Gameplay used a local trial assembled from the stock Highball r32 archive with rebuilt
+Gameplay used a local engine assembled from the stock Highball r32 archive with rebuilt
 Darwin and PE ntdll modules and the signed arm64 helper. The installed Wine 10 Sikarugir r28
 engine reproduced an illegal instruction at `0x143EE5588` before the menu. Unpatched Wine 11 r32
 reached the skirmish when the driver warning was acknowledged.
@@ -69,11 +69,12 @@ responded on both engines when Steam was started with DXMT, following Highball's
 ## Build checks and remaining validation
 
 - The [prototype Intel macOS build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/43691361823)
-  passed. Local gameplay used the trial modules described above.
+  passed. Local gameplay used the patched modules described above.
 - Native macOS and Rosetta portable tests passed. The freshly rebuilt arm64 helper passed
   strict signature verification and its Rosetta probe. All ten changed Wine source files in
   the prepared tree matched those used for the gameplay build.
-- Highball installed the locally packaged trial in a fresh test home, unpacked the helper
-  and profile, created a bottle and ran a Windows command in it.
-- Review the final Actions artifact through a fresh Highball install. Also verify extended
-  late-game play, replay and Windows multiplayer before publishing a game recipe or manifest.
+- The [r1 build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/43741809761)
+  rebuilt both ntdll modules and the arm64 helper. A fresh Highball install of that artifact
+  unpacked the helper and profiles, created a bottle and ran a Windows command in it.
+- Extended late-game play, replay and Windows multiplayer remain to be checked before
+  proposing the engine for Highball's app catalog and game database.
