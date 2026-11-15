@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Apply only to the pinned Wine source after Highball's default patch series."""
-import hashlib, json, pathlib, subprocess, sys
+import hashlib, json, os, pathlib, subprocess, sys
 here = pathlib.Path(__file__).resolve().parent
 if len(sys.argv) != 2:
     sys.exit("usage: apply.py /path/to/wine (after default patches)")
@@ -12,6 +12,10 @@ for name, expected in lock["post_highball_preimages_sha256"].items():
     if actual != expected or (expected is None and path.exists()):
         sys.exit("Refusing different/already patched source: " + name)
 patch = here / "patches/0031-aoe4-rosetta-profile-cache.patch"
-subprocess.run(["git", "apply", "--check", str(patch)], cwd=source, check=True)
-subprocess.run(["git", "apply", str(patch)], cwd=source, check=True)
+# Keep Git from discovering the enclosing Actions checkout when Wine is extracted under src/.
+env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)}
+subprocess.run(["git", "apply", "--check", str(patch)], cwd=source, env=env, check=True)
+subprocess.run(["git", "apply", str(patch)], cwd=source, env=env, check=True)
+if not (source / "dlls/ntdll/unix/aoe_ring_discovery.h").is_file():
+    sys.exit("AoE IV patch did not create its ring discovery source")
 print("Applied opt-in AoE IV proposal. Default engine patch series was not changed.")
