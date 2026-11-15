@@ -39,6 +39,8 @@ claimed verified. Calibrating that ring is required to enable caching on a curre
 
 ## Build a trial
 
+The preparation/profile/manifest tools require Python 3.11 or newer.
+
 On the fork's Actions page, choose **aoe4-trial-build** and this branch. That wrapper always
 sets `aoe4_trial=true` and `publish_release=false`. Its first push also starts a trial build. This compiles Wine on the existing Intel macOS runner and cross-builds
 and signs the native arm64 helper. A separate Linux workflow runs the portable checks on pushes.
@@ -94,7 +96,8 @@ must be refreshed intentionally when rebasing, rather than bypassing failed chec
    accepted: other data pointers may fit the numeric range.
 2. On the test Mac, inspect live memory across repeated generated-code resumes and ring wrap.
    Confirm the candidate points to the complete 16 MiB generated arena, not its current cursor,
-   and that the 32-byte fragment contract and lifecycle still hold. Also test allocation/cleanup
+   and that the 32-byte fragment contract, the recovered 0x140000000–0x180000000 code window
+   and the allocation lifecycle still hold. Also test allocation/cleanup
    and more than one save/map. If they differ, change the profile schema/cache, not just its RVA.
 3. Create a digest-bound profile from that exact executable and measured RVA:
 

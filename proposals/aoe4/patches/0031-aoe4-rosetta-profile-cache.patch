@@ -1604,7 +1604,7 @@ index 1b3f483..7b1fb61 100644
      unsetenv( "WINELOADERNOEXEC" );
  
 diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
-index acd83f0..2a861eb 100644
+index acd83f0..30b2bbf 100644
 --- a/dlls/ntdll/unix/signal_x86_64.c
 +++ b/dlls/ntdll/unix/signal_x86_64.c
 @@ -866,6 +866,21 @@ NTSTATUS unwind_builtin_dll( void *args )
@@ -1647,6 +1647,15 @@ index acd83f0..2a861eb 100644
          frame->eflags = context->EFlags;
      }
      if (flags & CONTEXT_FLOATING_POINT)
+@@ -1256,7 +1271,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
+     if (needed_flags & CONTEXT_CONTROL)
+     {
+         context->Rsp    = frame->rsp;
+-        context->Rip    = frame->rip;
++        context->Rip    = aoe_cache_logical_pc(frame->rip);
+         context->EFlags = frame->eflags;
+         context->SegCs  = cs64_sel;
+         context->SegSs  = ds64_sel;
 @@ -1664,7 +1679,7 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
  {
      struct xcontext context;
@@ -1683,6 +1692,15 @@ index acd83f0..2a861eb 100644
      save_context( &context, ucontext );
  
      switch (TRAP_sig(ucontext))
+@@ -2678,7 +2693,7 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ {
+     ucontext_t *ucontext = init_handler( sigcontext );
+-    EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)RIP_sig(ucontext) };
++    EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)aoe_cache_logical_pc(RIP_sig(ucontext)) };
+     struct xcontext context;
+ 
+ #ifdef __APPLE__
 diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
 index 3a4a370..5dddcda 100644
 --- a/dlls/ntdll/unixlib.h
