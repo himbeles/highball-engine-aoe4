@@ -4,6 +4,10 @@ name: build-engine
 on:
   workflow_dispatch:
     inputs:
+      aoe4_trial:
+        description: "Build the experimental AoE IV Wine patch, combined helper and install manifest"
+        type: boolean
+        default: true
       publish_release:
         description: "Publish the tarball as a GitHub release (tag engine-<wine version>-<date>)"
         type: boolean
@@ -39,6 +43,16 @@ jobs:
           set -euo pipefail
           cd src/sources/wine
           for p in ../../../patches/*.patch; do [ -e "$p" ] || continue; echo "applying $p"; patch -p1 < "$p"; done
+      - name: AoE IV source patch and portable checks
+        if: ${{ inputs.aoe4_trial }}
+        run: |
+          python3 proposals/aoe4/apply.py src/sources/wine
+          proposals/aoe4/tests/run.sh "$PWD/src/sources/wine"
+      - name: AoE IV combined arm64 helper
+        if: ${{ inputs.aoe4_trial }}
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          proposals/aoe4/build-sidecar.sh "$RUNNER_TEMP/aoe4-helper-build"
       - name: toolchain
         run: |
           set -euo pipefail
@@ -145,12 +159,39 @@ jobs:
           tar -C out -czf "${name}.tar.gz" .
           shasum -a 256 "${name}.tar.gz" | tee "${name}.tar.gz.sha256"
           ls -la "${name}.tar.gz"
+      - name: AoE IV helper archive, measured manifest and corresponding source
+        if: ${{ inputs.aoe4_trial }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/aoe4-package"
+          mkdir -p "$work/aoe4/profiles" "$work/aoe4/Licenses" "$work/corresponding-source"
+          cp "$RUNNER_TEMP/aoe4-helper-build/build/bin/x87sidecar" "$work/aoe4/"
+          cp proposals/aoe4/profiles/*.cache "$work/aoe4/profiles/"
+          cp proposals/aoe4/Licenses/x87sidecar-MIT.txt "$work/aoe4/Licenses/"
+          cp proposals/aoe4/inputs.lock.json "$work/aoe4/"
+          codesign --verify --strict "$work/aoe4/x87sidecar"
+          tar -czf aoe4-helper.tar.gz -C "$work" aoe4
+          shasum -a 256 aoe4-helper.tar.gz > aoe4-helper.tar.gz.sha256
+          cp crossover-sources.tar.gz "$work/corresponding-source/"
+          cp -R patches proposals inputs.json LICENSE NOTICE.md "$work/corresponding-source/"
+          tar --exclude=.git --exclude=build -czf "$work/corresponding-source/sidecar-patched.tar.gz" -C "$RUNNER_TEMP/aoe4-helper-build/source" .
+          tar -czf aoe4-corresponding-source.tar.gz -C "$work" corresponding-source
+          shasum -a 256 aoe4-corresponding-source.tar.gz > aoe4-corresponding-source.tar.gz.sha256
+          wine_archive=$(find . -maxdepth 1 -name 'engine-*.tar.gz' -print -quit)
+          test -n "$wine_archive"
+          tag=$(basename "$wine_archive" .tar.gz)
+          python3 proposals/aoe4/make-manifest.py --wine "$wine_archive" --helper aoe4-helper.tar.gz \
+            --release-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag" --output aoe4-engine.json
       - uses: actions/upload-artifact@v4
         with:
           name: engine
           path: |
             engine-*.tar.gz
             engine-*.tar.gz.sha256
+            aoe4-helper.tar.gz*
+            aoe4-corresponding-source.tar.gz*
+            aoe4-engine.json
           retention-days: 14
       - name: publish release
         if: ${{ github.event.inputs.publish_release == 'true' }}
@@ -160,4 +201,8 @@ jobs:
           set -euo pipefail
           f=$(ls engine-*.tar.gz | head -1)
           tag="${f%.tar.gz}"
-          gh release create "$tag" "$f" "$f.sha256" --title "$tag" --notes "Wine from the pinned CrossOver source (inputs.json) with the patch series in patches/. Built by run ${{ github.run_id }}. Checksum in the .sha256 file."
+          extra=()
+          if [ -f aoe4-engine.json ]; then
+            extra=(aoe4-helper.tar.gz aoe4-helper.tar.gz.sha256 aoe4-corresponding-source.tar.gz aoe4-corresponding-source.tar.gz.sha256 aoe4-engine.json)
+          fi
+          gh release create "$tag" "$f" "$f.sha256" "${extra[@]}" --title "$tag" --notes "Wine from the pinned CrossOver source (inputs.json) with the patch series in patches/. Built by run ${{ github.run_id }}. Checksum in the .sha256 file."

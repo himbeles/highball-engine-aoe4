@@ -1,6 +1,6 @@
 {
-  "status": "experimental proposal; no macOS or game validation",
-  "engine_commit": "5a7a000bbe468323d96bdaf9ec5edf24de15e10c",
+  "status": "implementation; macOS/game validation pending",
+  "engine_commit": "161d7a8495d041d2901d07ff3b4fffeed9be1a4b",
   "wine_source": {
     "name": "CrossOver 26.3.0 sources (LGPL)",
     "url": "https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz",
@@ -34,8 +34,8 @@
     "dlls/ntdll/unix/aoe_hde_impl.h": null,
     "dlls/ntdll/unix/aoe_hde_table.h": null,
     "dlls/ntdll/unix/aoe_relocate.h": null,
-    "dlls/ntdll/unix/loader.c": "2fe28e75d7ee26ebedc6dd0bf709a6e9ca83740eb80b3f012d3c63899d2bdd9b",
-    "dlls/ntdll/unix/signal_x86_64.c": "527de8d3ad52c4712adf7685b361a53970750e2e7655693362632c896ab9576a",
+    "dlls/ntdll/unix/loader.c": "842dc0c831b296e5376f793037ef7b87464d2d7093495fde10eaf849f11bacc0",
+    "dlls/ntdll/unix/signal_x86_64.c": "3ef82793f789ef3b468c80ba18a65ec50b7f1377349a1ee6a0fa5f7c338d8a89",
     "dlls/ntdll/unixlib.h": "63419c7fce9fc8d9f725134793457856375a72a5c43450987bc7d94aa484c0e1"
   },
   "highball_patches_sha256": {
@@ -49,10 +49,34 @@
     "patches/0009-macos-swap-fiberdata-and-qos-slot.patch": "0fcd084eb255288319d71739d69ba459fec637499cc04ab79aff8767fa8cb42c",
     "patches/0010-mfreadwrite-video-processor-sample-allocator.patch": "d16d712a2cdbec5194ba977b649054d26ce78ea7ec760a508625b009c40b17ad",
     "patches/0011-macos-lasterror-in-gs-slot.patch": "f9141f3ffd5a8a6d79304c5e2d7c7e400be738d7ada0a6d35647583e67c153b3",
-    "patches/0012-ntdll-x87sidecar-cooperative-attach.patch": "64a3a3dd27b2d1bef469d96fd1ed354c860138b47769f79413c8932118ef154a",
+    "patches/0012-ntdll-x87sidecar-cooperative-attach.patch": "0d88c3c9359f3591e521eb5dd48534999889ef85ff44385d2d3832d8c75878c3",
     "patches/0013-ntdll-nx-compat-from-main-image-permanent-under-rosetta.patch": "a208a9b4826bcb87babb2e206aee12b64a50a176544442bc6406e4b605bdb7ab",
     "patches/0014-msync-unregister-early-return.patch": "09c46f062f7e936bb331274192ce3436dbd18242a1b1618ca4944b6193158715",
     "patches/0015-winecoreaudio-io-buffer-under-half-a-period.patch": "052b593e167ee1e732f2eeeafefc362b16612b8a247f293d903dafcd34bbe0c4",
-    "patches/0016-macos-lasterror-callback-return-once.patch": "e9d867935f62ae998a887e6694365470a35c664a098c8e7cab056219b58fe495"
+    "patches/0016-macos-lasterror-callback-return-once.patch": "e9d867935f62ae998a887e6694365470a35c664a098c8e7cab056219b58fe495",
+    "patches/0017-kernelbase-getintegrateddisplaysize-stub.patch": "4a1d36cf5615b009dd1cc3cc3dc5da4288e008ed8c8f8bac65cdb4190a99a461",
+    "patches/0018-macos-commit-charge-is-the-footprint.patch": "c8ec9641577b755f075de8342cdb883c390fc20eca8acaeb68a6d2d2d39128b7",
+    "patches/0019-advapi32-credenumerate-empty-keychain-is-not-an-error.patch": "cdde79f08bbf892735ae883ff6389068a4ec4faa136bdba36637142f0ace8e84",
+    "patches/0020-winemac-retina-horzres-not-doubled.patch": "77cffeb2106d0d352c5cb7b4e0ad5e6c2d3de366950d9cf37f06afcaff638dc6",
+    "patches/0021-opengl32-es2-compat-calls-in-legacy-contexts.patch": "8553b4f3fcb092edfde2f12ec410b004a7bebca5c7177d0a1b77837717280249",
+    "patches/0022-mmdevapi-spatial-static-object-order.patch": "4f56403c24657cbd5517e10b2acfea48eacc8b5711de7889df3411437e8c15ca",
+    "patches/0023-winecoreaudio-spatial-mixer-for-surround-beds.patch": "245fcf202c3ea2a9c866810161e7851395ca3915522d77d481929a6658a37d08",
+    "patches/0024-kernelbase-app-packages-from-the-registry.patch": "a441d02f01204c7543e5ac0da21b3c8d9b4b8b0b6b026208c97733c9f1c7245e",
+    "patches/0025-ntdll-threadpool-io-release-once.patch": "ff1e608bd5a2df09342f50e66c511adcd5cfa54df8dccf48c9986857debf8031",
+    "patches/0026-ntdll-timezone-names-for-utc3-zones.patch": "8c50cf878020ea1b7b8eafec7e5431547e9f3a19857ca1eeefa5ef88f1b70661",
+    "patches/0027-ntdll-dll-redirection-dotlocal-folder.patch": "37f3af2aa0685a24764b8f023e6afa55802379aaf7256cffa2239bd6b82e64aa",
+    "patches/0028-ntdll-crash-on-faults-in-foreign-threads.patch": "ca24d828174ce7387acaef5e0f042e629fadde46f28e1aa4888affe5e818d822",
+    "patches/0029-concrt140-msvcp90-concurrent-vector-from-upstream.patch": "e0912031609c64ff026edf15e23fc01c4c19a3543540d5c04b91af5b6ad14063",
+    "patches/0030-gdi32-d3dkmt-set-process-scheduling-priority-class.patch": "274d52428496fb1cb8bbe94a320316d154b0350680a857709508efb5c3cf295d"
+  },
+  "sidecar_patches_sha256": {
+    "0001-compose-softfault-and-x87-decoders.patch": "1ec556f372fa5b2fc3eee84fef31908d797930000e085290edd75f2807b4e622",
+    "0002-fallback-gs-blocks-before-x87-emission.patch": "20692d8b071b659b4cc6a7ea24500d5df85300cf12bd3a14eb36001f5bed5664",
+    "0003-flush-fbld-deferred-pops-before-inputs.patch": "d813393e4b45b5ed3475dc1d71e4ea923a08d062688ade85eb15e2b8cb85f115"
+  },
+  "sidecar_patches_origin": {
+    "repository": "https://github.com/tarikbc/macgames",
+    "commit": "1579841b15ce569807b92af95b478c752c26df3d",
+    "license": "MIT (explicit patch headers)"
   }
 }

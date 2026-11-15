@@ -1,4 +1,8 @@
-# highball-engine
+# highball-engine-aoe4
+
+This fork implements an experimental Age of Empires IV engine for Highball. See the
+[trial build, install manifest and cache-profile instructions](proposals/aoe4/README.md).
+Game verification and a measured cache profile for current 17.x builds are still required.
 
 The Wine engine build for [Highball](https://github.com/gauthierpiarrette/highball), as a
 reproducible recipe: pinned upstream sources, a small patch series, and a CI workflow that turns

@@ -12,6 +12,8 @@ if [[ $(uname -s) != Darwin ]]; then
   crypto=(-lcrypto)
 fi
 "$cc" "${common[@]}" "$proposal_dir/tests/test_guard.c" "${crypto[@]}" -o "$work/guard"
+"$cc" "${common[@]}" "$proposal_dir/tests/test_layout.c" "${crypto[@]}" -o "$work/layout"
+"$work/layout"
 "$cc" "${common[@]}" "$proposal_dir/tests/test_relocator.c" -o "$work/relocator"
 "$work/guard"
 "$work/relocator"
@@ -20,7 +22,9 @@ if [[ $(uname -m) == x86_64 ]]; then
   "$work/cache" disabled
   "$work/cache" unverified
   "$work/cache" other-game
-  "$work/cache"
+  "$work/cache" missing-profile
+  AOELAB_COUNTERS_DIR="$work/counters" "$work/cache"
+  python3 "$proposal_dir/cache-stats.py" "$work/counters" --require-active
 else
   echo "SKIP: executable x86_64 cache test requires an x86_64 host (run under Rosetta on macOS)"
 fi

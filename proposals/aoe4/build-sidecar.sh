@@ -8,6 +8,7 @@ helper_repo=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["s
 helper_commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sidecar"]["commit"])' "$proposal_dir/inputs.lock.json")
 git clone --no-checkout "$helper_repo" "$work/source"
 git -C "$work/source" checkout --detach "$helper_commit"
+python3 "$proposal_dir/verify-sidecar.py" "$work/source"
 cmake -S "$work/source" -B "$work/build" -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_BUILD_TYPE=Release
 cmake --build "$work/build" --target x87sidecar --parallel
 shasum -a 256 "$work/build/bin/x87sidecar"

@@ -1,0 +1,23 @@
+name: aoe4-portable-tests
+on:
+  workflow_dispatch:
+  push:
+    branches: ["implement/aoe4-engine", "proposal/aoe4-rosetta-fixes"]
+    paths: ["proposals/aoe4/**", "patches/**", ".github/workflows/aoe4-tests.yml"]
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: pinned Wine, patched source, cache and guard tests
+        run: |
+          set -euo pipefail
+          curl --fail --location -o "$RUNNER_TEMP/crossover.tar.gz" "$(python3 -c 'import json; print(json.load(open("inputs.json"))["wine"]["url"])')"
+          python3 proposals/aoe4/prepare-source.py "$RUNNER_TEMP/crossover.tar.gz" "$RUNNER_TEMP/aoe4-wine"
+          proposals/aoe4/tests/run.sh "$RUNNER_TEMP/aoe4-wine/sources/wine"
+          python3 proposals/aoe4/tests/test_tools.py

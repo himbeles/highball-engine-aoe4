@@ -1,49 +1,35 @@
 # Verification record
 
-Date: 2026-10-04. Host: Linux x86_64. Engine baseline:
-`5a7a000bbe468323d96bdaf9ec5edf24de15e10c`, CrossOver 26.3.0 sources (Wine 11),
-all existing Highball patches 0001–0016.
+Date: 2026-11-15. Host: Linux x86_64. Wine baseline: Highball engine
+`161d7a8495d041d2901d07ff3b4fffeed9be1a4b`, pinned CrossOver 26.3 sources.
+Status: implementation in a fork; no PR, release or game verification claimed.
 
-Game: proposed support for RelicCardinal.exe with SHA256
-`5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c`.
-Chip, macOS and runtime engine id: **not tested; unavailable on the verification host**.
-Upstream: no issue or PR filed. Proposal branch only.
+Performed:
 
-## Performed
+- Verified the CodeWeavers archive's 149054023-byte size and SHA256
+  `ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872`.
+- Applied the current Highball patch series, resolved the cooperative-protocol changes, regenerated
+  the AoE patch and preimage lock, and applied it to a fresh extraction through `prepare-source.py`.
+- Applied all three checksum-pinned MIT sidecar patches to the pinned baseline without fuzz.
+- Portable tests passed: descriptor hashing and offset preservation; name/PID/flag checks; PE64
+  image/text/data bounds and malformed headers; profile digest, pointer alignment and data bounds;
+  fragment relocation/refusal; cache deduplication/execution/original-PC mapping; absent profile,
+  changed fragments and invalid ring-pointer fallbacks.
+- Tool tests passed: profiles use the actual file SHA256, reject invalid pointer RVAs and refuse
+  overwriting existing profiles; generated manifests use actual archive size/SHA256, reject
+  missing engine/helper files and preserve Highball's Apple licence declaration.
+- GCC C syntax check of the modified PE signal source against Wine's headers; workflow YAML and
+  shell syntax checks. These do not establish macOS linking, native sidecar execution or gameplay.
 
-- Downloaded and independently checked the complete 149054023-byte CodeWeavers source archive;
-  SHA256 `ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872` matches `inputs.json`.
-- Applied every existing Highball patch in lexical order to the source archive.
-- Applied this proposal to a second clean extraction using the checked preparation script.
-  Confirmed a second application is refused by the preimage checks.
-- Portable guard test: names, flag presence/default-off behavior, exact current PID bootstrap,
-  known SHA256 vector, changed bytes, mismatched game digest, empty/invalid/nonregular descriptors,
-  unchanged descriptor position.
-- Relocator test: return fragment, RIP-relative operand, external near-Jcc, short jump; refusal
-  of internal targets, calls, short-Jcc, truncated instructions and displacement overflow.
-- Cache test: disabled, unverified and other-game profiles refused; duplicate fragment uses one
-  slot and executes to return 42, original bytes retained, original PC recovered, unsupported
-  fragments and addresses fall back.
-- GCC syntax check of the changed x64 PE `signal_x86_64.c` against this source's Wine/MSVCRT
-  headers (`-fsyntax-only -fno-builtin -fshort-wchar -D_WIN64 -D__WINESRC__ -D__WINE_PE_BUILD`).
-  This checks C declarations, not assembly emission/linking or a macOS Wine build.
+Remaining:
 
-## Remaining acceptance work
-
-1. Build both Wine halves on the supported macOS toolchain and the native arm64 helper; retain
-   the build logs, helper checksum and `--probe` output for the actual test Mac.
-2. Check an actual installed game's digest/version and record chip, macOS, engine id and date.
-3. Exercise the software fault thunks with integer, flag, SSE and AVX state; verify both one-byte
-   and two-byte fault recovery and unchanged behavior with both flags absent.
-4. Run the game via Steam: menu, skirmish, campaign/map transitions, longer gameplay and shutdown.
-   Compare baseline, softfault-only and softfault+cache for correctness and measured frame times.
-5. Exercise failed helper attach, unsupported game digest, bridge/cache address collision and
-   inherited environment in unrelated Steam children on macOS.
-6. Confirm cached faults unwind/report original addresses and do not introduce signal, thread
-   or fragment-lifetime regressions; exercise repeated launches and a populated cache.
-7. Verify signed/notarized packaging, preserve corresponding sources and notices, and pin the
-   resulting artifact only after the trial passes. Promote to the default series only after review.
-
-Passing portable tests does not establish Rosetta compatibility or game playability. The supported
-executable digest was taken from the public recovered profile; the game itself was not available
-for independent validation here.
+- Run the macOS engine workflow and native sidecar `--probe` on an Apple Silicon Mac; retain logs.
+- Verify one- and two-byte software exceptions, x87/AVX/integer state and cached exception contexts.
+- Measure and validate the live generated-code ring for current game builds; no 17.x cache profile
+  is supplied. The old profile was recovered from public source, not independently measured here.
+- Test baseline/combined/cache configurations with the same save/replay, long sessions, save/load
+  and Windows multiplayer. Record actual game SHA256, version, chip, macOS and runtime engine id.
+- Review helper signing/notarization and component loading through Highball on the target Mac.
+- Independently verify release checksums and create a truthful `lastVerified` recipe only after
+  acceptance. Evaluate newer athei sidecar commits separately; this trial pins the known AoE
+  baseline plus explicit MIT fixes instead of claiming an untested upstream-version upgrade.

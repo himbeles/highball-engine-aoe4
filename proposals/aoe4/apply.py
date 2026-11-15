@@ -11,7 +11,7 @@ for name, expected in lock["post_highball_preimages_sha256"].items():
     actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
     if actual != expected or (expected is None and path.exists()):
         sys.exit("Refusing different/already patched source: " + name)
-patch = here / "patches/0017-aoe4-rosetta-softfault-cache.patch"
+patch = here / "patches/0031-aoe4-rosetta-profile-cache.patch"
 subprocess.run(["git", "apply", "--check", str(patch)], cwd=source, check=True)
 subprocess.run(["git", "apply", str(patch)], cwd=source, check=True)
 print("Applied opt-in AoE IV proposal. Default engine patch series was not changed.")

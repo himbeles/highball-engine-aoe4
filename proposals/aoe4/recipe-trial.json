@@ -1,0 +1,31 @@
+{
+  "id": "age-of-empires-iv",
+  "kind": "game",
+  "title": "Age of Empires IV",
+  "requires": [
+    "steam"
+  ],
+  "renderer": "d3dmetal",
+  "engine": "x64-crossover26.3-aoe4-r1",
+  "steps": [
+    {
+      "type": "environment",
+      "name": "AOELAB_SOFTFAULT_GAME",
+      "value": "1"
+    },
+    {
+      "type": "environment",
+      "name": "AOELAB_CODE_CACHE_GAME",
+      "value": "1"
+    },
+    {
+      "type": "environment",
+      "name": "AOELAB_COUNTERS_DIR",
+      "value": "${environment}/aoe4-counters"
+    },
+    {
+      "type": "note",
+      "text": "Trial engine: check the launch log for the executable SHA256 and cache profile acceptance. Missing profiles keep the cache inactive and require ring calibration."
+    }
+  ]
+}

@@ -14,7 +14,7 @@ int main(void) {
  const uint8_t internal[]={0x0f,0x85,0,0,0,0,0xc3}; assert(!aoe_fragment_key(internal,sizeof internal,pc,&k));
  const uint8_t call[]={0xe8,0x20,0,0,0,0xc3}; assert(!aoe_fragment_key(call,sizeof call,pc,&k));
  const uint8_t shortjcc[]={0x75,0x20,0xc3}; assert(!aoe_fragment_key(shortjcc,sizeof shortjcc,pc,&k));
- const uint8_t jump[]={0xeb,0x20}; assert(aoe_fragment_key(jump,sizeof jump,pc,&k)); assert(aoe_fragment_emit(&k,shadow,out)); assert(out[0]==0xe9); assert(shadow+5+rel(out+1)==pc+34);
+ const uint8_t jump[]={0xeb,0x20}; assert(!aoe_fragment_key(jump,sizeof jump,pc,&k));
  assert(!aoe_fragment_key(rip,3,pc,&k));
  puts("PASS: relocations preserve targets; unsupported control flow and overflow refused");
 }

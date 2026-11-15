@@ -1,130 +1,145 @@
-# Experimental AoE IV engine proposal
+# AoE IV trial engine for Highball
 
-This is a reviewable port of the recovered GameToMac Wine softfault bridge and immutable code
-cache to Highball's Wine 11 engine. It is **not yet a verified Highball game fix**. The proposal
-lives outside `patches/`, so the existing workflow and normal engine builds do not apply it.
-No app manifest or game recipe changes are included. No issue, PR, release or workflow run has
-been submitted.
+This branch implements an optional Wine 11 engine, `x64-crossover26.3-aoe4-r1`. It builds from
+Highball's Intel line at `161d7a8495d041d2901d07ff3b4fffeed9be1a4b` (CrossOver 26.3), adds
+`0031-aoe4-rosetta-profile-cache.patch`, builds the AoE-aware arm64 helper and produces a Highball
+install manifest. It is experimental: Linux checks pass; a macOS build and actual game acceptance
+are still required. No verified compatibility claim or FPS claim is made.
 
-Baseline: [highball-engine](https://github.com/gauthierpiarrette/highball-engine) commit
-`5a7a000bbe468323d96bdaf9ec5edf24de15e10c`, CrossOver 26.3.0 source archive, and patches
-0001–0016. [inputs.lock.json](inputs.lock.json) pins the source, existing patch hashes, helper
-commit, executable digest and the Wine files this proposal changes.
+The normal upstream patch folder is retained. In this fork, the existing `build-engine` workflow
+has an `aoe4_trial` input, default true, that adds the separate AoE patch and helper; false builds
+the unchanged upstream Wine series. Nothing has been submitted upstream and no PR is opened.
 
-## What changes
+## Implemented behavior
 
-- Two x64 ntdll thunks deliver software illegal-instruction exceptions while preserving integer,
-  floating-point and AVX context. A bridge at `0x180000000` exposes those thunks to the decoder.
-- The AoE-aware native arm64 x87sidecar decoder recognizes the recovered game's fault range and
-  redirects it to that bridge. Highball's existing i386 sidecar launch is insufficient: this is
-  a separate x64 game launch using the existing cooperative Mach protocol.
-- An opt-in cache deduplicates relocatable fragments in the game's generated-code ring without
-  modifying the game's original bytes. Signal context reports map cached PCs back to game PCs;
-  unsupported instructions, branches and relocation overflow fall back to the original fragment.
-- Eligibility requires Rosetta on macOS 26 or later, the exact executable SHA256, an AMD64 image
-  mapped at `0x140000000`, and an explicitly enabled profile. The digest is computed from the
-  descriptor Wine subsequently uses for `SEC_IMAGE`, rather than reopening a path.
-- The game attach happens after ntdll and the bridge are mapped. Missing helper, missing or stale
-  bootstrap, failed attach and empty hook ranges fail closed. The AoE receive has a 30-second
-  timeout. Non-game children discard the private bridge profile they inherited.
+- The x64 ntdll software-fault thunks and bridge are retained. The cooperative attach occurs after
+  the game and ntdll bridge are mapped, with bounded receive and protocol validation.
+- The helper composes software-fault and x87 decoding, and includes the explicitly MIT-licensed
+  GS/TLS fallback and FBLD deferred-pop fixes. `X87_ALWAYS_NONE` is removed for the game.
+- Wine independently parses the executable's PE64 headers before launching the helper. It accepts
+  the recovered image base/text-start contract, derives the range end from `.text` minus the
+  observed 0x500 tail, and hashes the file. Before `SEC_IMAGE`, Wine checks the same descriptor
+  it will map against that digest. Layout checks are structural checks, not proof of gameplay
+  compatibility with arbitrary updates. An unsupported layout or failed attach stops this explicit
+  trial launch with a diagnostic; launches with the flags absent are unchanged.
+- The immutable generated-code cache remains implemented and requested by the trial recipe.
+  A measured profile bound to the actual executable SHA256 supplies the pointer RVA. The pointer
+  must be aligned and inside writable `.data`; version 1 supports only the observed 16 MiB ring
+  and 32-byte slots. The pointer is read at runtime, never replaced by an unverified absolute
+  address. Missing/bad profiles are reported and leave the cache inactive while softfault+x87 runs.
+- The cache preserves original bytes, refuses unsupported instructions and relocation overflow,
+  checks for changing source bytes and maps cached exception PCs to originals. Short jumps are
+  now refused because widening them does not preserve the byte-offset context map. The production
+  test-ring bypass was removed. `AOELAB_COUNTERS_DIR` retains cache-hit/redirect/refusal counters.
 
-The recovered addresses are tied to **one build** of `RelicCardinal.exe`, Steam app 1466860:
+**Current cache coverage:** the bundled profile is only for the recovered executable SHA256
+`5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c` (16.3.11308), with pointer
+RVA `0x7af7ad0`. The game binary is not available here. No address for 17.x has been guessed or
+claimed verified. Calibrating that ring is required to enable caching on a current build.
 
-```
-5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c
-```
+## Build a trial
 
-An updated game with a different digest is refused. Updating this digest alone would be wrong:
-the fault range, ring pointer and fragment layout must also be checked. Cache-only mode is a
-diagnostic configuration; it does not supply the decoder fix that the softfault profile supplies.
+On the fork's Actions page, choose **build-engine**, this branch, `aoe4_trial=true` and
+`publish_release=false`. This compiles Wine on the existing Intel macOS runner and cross-builds
+and signs the native arm64 helper. A separate Linux workflow runs the portable checks on pushes.
+The engine artifact includes:
 
-## Source and licence provenance
+- the Wine engine archive and checksum;
+- `aoe4-helper.tar.gz` and checksum (helper, profiles, licences and source pins);
+- `aoe4-corresponding-source.tar.gz` and checksum (original Wine archive, patches/build inputs,
+  and the patched helper source);
+- `aoe4-engine.json`, with actual archive hashes, sizes and the tagged-release URLs.
 
-The public sources used here are NerRobDog's mirrors, **not a claimed public GameToMac repository**:
+A non-publishing trial produces artifacts; its future release URLs do not become downloadable
+until the assets are hosted. After a successful Mac/game trial, the same workflow's explicit
+`publish_release=true` publishes them together. No release is published automatically.
+The manifest reuses Highball r31's renderer/runtime component data and licence gates; it adds the
+fork's Wine archive and helper component. It does not redistribute Apple's graphics binaries in
+our Wine/helper archives. D3DMetal requires the usual Highball licence acceptance.
 
-- [wine-aoe4 at 711c6fc](https://github.com/NerRobDog/wine-aoe4/tree/711c6fc7559a565c417aab4d52d84b09767a9c1d):
-  recovered Wine changes credited to Marc Ibrahim, plus NerRobDog's near-Jcc relocator and
-  diagnostic extensions. Wine modifications are LGPL-2.1-or-later, as required by this repository.
-- [x87sidecar at c407ddf](https://github.com/NerRobDog/x87sidecar/tree/c407ddfabbbe6bc5f5d56a258a4866ac89b04d8e):
-  the matching softfault decoder, based on athei's sidecar and Lifeisawful's original work, MIT.
-  `rosetta_loader/src/stub_asm.cpp` contains `buildSoftFaultHook` and the `AOE_SOFTFAULT_*` gates.
-- HDE is Vyacheslav Patkov's BSD disassembler. Its full licence is retained in the imported
-  headers and [Licenses/HDE-LICENSE.txt](Licenses/HDE-LICENSE.txt). The helper's MIT notice is
-  copied to [Licenses/x87sidecar-MIT.txt](Licenses/x87sidecar-MIT.txt).
-
-The CodeWeavers source archive's size and SHA256 were independently verified against Highball's
-pin. The mirrors' claims about the original GameToMac archive were not independently verified
-against an original vendor download. The helper is built from pinned source; no GameToMac
-prebuilt helper or bundled graphics binary is redistributed here.
-
-## Reproduce source preparation and tests
-
-Requirements: Python 3, Git, `tar`, `patch`, a C compiler; Linux also needs OpenSSL development
-headers and libcrypto. Use a new work directory. From the repository root:
+To generate a manifest after building/hosting manually:
 
 ```bash
-curl --fail --location --output crossover-sources.tar.gz \
-  https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
-python3 proposals/aoe4/prepare-source.py crossover-sources.tar.gz /absolute/new/aoe-work
-proposals/aoe4/tests/run.sh /absolute/new/aoe-work/sources/wine
+python3 proposals/aoe4/make-manifest.py --wine engine-....tar.gz --helper aoe4-helper.tar.gz \
+  --release-url https://github.com/himbeles/highball-engine-aoe4/releases/download/TAG \
+  --output aoe4-engine.json
+highball engine install aoe4-engine.json --accept-d3dmetal-license
+highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r1 --renderer d3dmetal
+highball recipe apply AoE4 /absolute/path/to/recipe-trial.json
 ```
 
-Preparation verifies the archive's size and SHA256 and the complete default patch series before
-extraction. It applies that series, verifies each changed Wine file's preimage, checks the
-proposal with `git apply --check`, then applies it. Changed/already-patched sources are refused.
-For a tree with the default series already applied, use `proposals/aoe4/apply.py` directly.
-Tests include executable-name and descriptor-hash guards, PID bootstrap matching, relocation
-correctness/refusal and execution of a deduplicated x86_64 fragment. On an arm64 shell, the last
-test is skipped; run it under Rosetta with an x86_64 compiler to cover it.
+Check `highball recipe apply --help` for the CLI shipped with your app. `recipe-trial.json` is
+local test data, not a submission-ready verified recipe; it intentionally has no invented
+`lastVerified`. Install/launch Steam and your own AoE IV normally in this dedicated environment.
+The manifest resolves the helper/profile paths through `${frameworks}`, so no user-specific
+absolute paths or app changes are needed. Wine resolves its own loader after `init_paths`.
 
-See [VALIDATION.md](VALIDATION.md) for checks actually performed and the remaining acceptance work.
-
-## Build and launch for a local macOS trial
-
-Build Wine from the prepared source with the configure flags/toolchain in
-[the existing workflow](../../.github/workflows/build.yml). Its Unix half remains x86_64;
-its PE halves remain i386 and x86_64. This proposal does not alter or dispatch the workflow.
-To trial it in a fork's CI later, add `python3 proposals/aoe4/apply.py src/sources/wine` immediately
-after the default patch step on a separate build branch and leave `publish_release=false`.
-The workflow's existing artifact alone does not contain the helper; build that separately.
-
-Build the native arm64 helper on macOS with Xcode tools and CMake >=3.27:
+For source-only preparation on Linux or macOS:
 
 ```bash
-proposals/aoe4/build-sidecar.sh /absolute/new/helper-work
-/absolute/new/helper-work/build/bin/x87sidecar --probe
+python3 proposals/aoe4/prepare-source.py /path/to/crossover-sources.tar.gz /new/work-directory
+proposals/aoe4/tests/run.sh /new/work-directory/sources/wine
+python3 proposals/aoe4/tests/test_tools.py
 ```
 
-`--probe` validates the installed Rosetta layout; it does not prove AoE gameplay works. Use a
-copy of a test bottle and the newly built engine, then check `shasum -a 256 RelicCardinal.exe`.
-With paths adjusted to your installation, run from the game's directory:
+`inputs.lock.json` checks archive size/hash, the entire upstream patch series and all changed Wine
+preimages. The helper build checks its source commit and each MIT patch's checksum. These inputs
+must be refreshed intentionally when rebasing, rather than bypassing failed checks.
 
-```bash
-export WINEPREFIX=/absolute/path/to/test-bottle
-export WINELOADER=/absolute/path/to/trial-engine/bin/wine
-export WINESERVER=/absolute/path/to/trial-engine/bin/wineserver
-export AOELAB_SIDECAR_PATH=/absolute/new/helper-work/build/bin/x87sidecar
-export AOELAB_SOFTFAULT_GAME=1
-export AOELAB_CODE_CACHE_GAME=1
-"$WINELOADER" ./RelicCardinal.exe
-```
+## Calibrate the cache for a newer game build
 
-Steam-launched trials need these values in Steam's launch environment so the game child inherits
-them. Keep engine, ntdll and wineserver from the same trial build. Flags are presence-based:
-`AOELAB_SOFTFAULT_GAME=0` still enables it; **unset** the flags for baseline comparisons.
-Do not set the private `AOELAB_SOFTFAULT_BRIDGE`, `AOE_SOFTFAULT_*` or bootstrap variables yourself.
-A matching helper is required; the existing generic x87 helper cannot substitute for it.
+1. Launch with both recipe flags and `AOE4_CACHE_DIAGNOSTICS=1`. The log prints the actual game
+   SHA256, missing-profile status and candidate pointer RVAs from writable `.data`. Diagnostic
+   scans are bounded and disabled in normal launches. Candidates are clues, never automatically
+   accepted: other data pointers may fit the numeric range.
+2. On the test Mac, inspect live memory across repeated generated-code resumes and ring wrap.
+   Confirm the candidate points to the complete 16 MiB generated arena, not its current cursor,
+   and that the 32-byte fragment contract and lifecycle still hold. Also test allocation/cleanup
+   and more than one save/map. If they differ, change the profile schema/cache, not just its RVA.
+3. Create a digest-bound profile from that exact executable and measured RVA:
 
-## Before proposing upstream adoption
+   ```bash
+   python3 proposals/aoe4/profile.py /path/to/RelicCardinal.exe \
+     --ring-pointer-rva 0xMEASURED --output-dir /path/to/installed/frameworks/aoe4/profiles
+   ```
 
-Follow [patches/README.md](../../patches/README.md): keep the patch header's verification and
-upstream-status fields truthful, then record game digest/version, chip, macOS, engine identifier,
-date and measured results after a real trial. [Highball's contribution guide](https://github.com/gauthierpiarrette/highball/blob/4db5d5caf43acd54ec340d940f6b275b3f94ce7c/CONTRIBUTING.md)
-places Wine patches here; application manifests require measured size, SHA256 and an independently
-verified checksum note, while game recipes belong in highball-db.
+4. Restart the environment. Require the log's **cache profile accepted** message, nonzero redirect
+   and hit counters, and an actual replay comparison. Record the digest and chip/macOS/game build.
+   Then commit the measured profile under `profiles/` and rebuild the helper package.
 
-After acceptance testing, decide helper packaging/signing and pin its actual artifact checksum,
-then add a separate opt-in engine manifest and game recipe. Those changes need their own review.
-The proposal does not port the graphics/shader/launcher adjustments in GameToMac's complete pack,
-and its handshake has no protocol status proving that a particular decoder profile was installed.
-A full game trial is required before calling this a working replacement for that pack.
+   The trial recipe writes per-process counters under the bottle's `aoe4-counters` directory:
+
+   ```bash
+   python3 proposals/aoe4/cache-stats.py /path/to/bottle/aoe4-counters --require-active
+   ```
+
+   Use a fresh counters directory for comparisons. A successful exit requires positive cache hits
+   and redirects; merely having the flag or a profile does not pass this check.
+
+The profile-writing tool checks the file hash and pointer's section/alignment. It cannot validate
+live allocation size, slot semantics or game correctness. No automatic scanning heuristic turns
+caching on. `AOELAB_CODE_CACHE_GAME=0` still enables it (presence-based original flag); unset it
+for softfault+x87-only tests. Unset both game flags for the baseline engine behavior.
+
+## Acceptance before upstream integration
+
+Run the same replay with baseline, softfault-only (`AOE4_X87=0`), combined x87, and combined x87+cache. Record FPS and frame-time percentiles, exceptions,
+cache hits/refusals, a longer late-game session, save/load, and a match with Windows players.
+Exercise missing helper, invalid layout/profile, ring changes and unrelated Steam children.
+See `VALIDATION.md` for checks actually performed. A compiled engine alone does not verify AoE IV.
+
+Upstream's structure remains: Wine/helper patches and builds in `highball-engine`, download
+manifest in Highball, measured game recipe in `highball-db`. The local manifest/recipe let us
+validate before requesting upstream changes. The native ARM64/FEX engine is a separate project.
+
+## Provenance
+
+Wine thunks/cache derive from Marc Ibrahim's LGPL sources mirrored at
+[NerRobDog/wine-aoe4](https://github.com/NerRobDog/wine-aoe4/tree/711c6fc7559a565c417aab4d52d84b09767a9c1d),
+with NerRobDog's relocator extensions. The helper baseline is
+[NerRobDog/x87sidecar](https://github.com/NerRobDog/x87sidecar/tree/c407ddfabbbe6bc5f5d56a258a4866ac89b04d8e),
+based on athei and Lifeisawful (MIT). Decoder composition/GS/FBLD patches are explicitly MIT in
+[MacGames](https://github.com/tarikbc/macgames/tree/1579841b15ce569807b92af95b478c752c26df3d/patches/x87sidecar).
+The new Wine layout/profile code and tools were independently implemented here. No PolyForm
+MacGames application/Swift bridge code is copied. HDE's BSD notice and helper MIT notice are
+retained under `Licenses/`. Highball manifest/recipe data remain data with their original terms.
