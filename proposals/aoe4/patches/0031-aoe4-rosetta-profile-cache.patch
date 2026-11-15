@@ -1,18 +1,15 @@
 From: AoE IV Highball engine contributors
-Subject: [EXPERIMENTAL] ntdll: combined AoE software faults and profiled immutable cache
+Subject: [EXPERIMENTAL] ntdll: AoE software faults and generated-code cache
 
 Wine changes recovered from Marc Ibrahim's LGPL sources via NerRobDog/wine-aoe4
 711c6fc7559a565c417aab4d52d84b09767a9c1d; relocator extensions by NerRobDog.
-New layout/profile implementation LGPL-2.1-or-later. HDE notices retained.
+Layout validation and ring discovery are LGPL-2.1-or-later. HDE notices retained.
 
 Rebased on Highball 161d7a8495d041d2901d07ff3b4fffeed9be1a4b. Uses an
 AoE-aware sidecar with MIT decoder composition fixes; ordinary x87 is enabled.
-Same-descriptor image verification guards SEC_IMAGE; SHA-bound cache profiles
-replace a hardcoded global pointer. No cache-address guesses for unknown builds.
-
-Verification: portable guard, layout, profile, relocator and executable cache tests.
-macOS build and gameplay verification pending. No tested chip/macOS/engine id yet.
-Upstream status: experimental fork only, no issue or PR filed.
+Same-descriptor verification guards SEC_IMAGE. Cache setup uses a SHA-bound
+profile or matching allocation and slot writer instructions, then checks the
+discovered allocation at runtime before redirecting generated code.
 
 diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
 index f20e42a..4fc338e 100644
@@ -117,10 +114,10 @@ index a5bbbae..f5582a0 100644
                     __ASM_CFI(".cfi_adjust_cfa_offset 8\n\t")
 diff --git a/dlls/ntdll/unix/aoe_build_guard.h b/dlls/ntdll/unix/aoe_build_guard.h
 new file mode 100644
-index 0000000..717486b
+index 0000000..426897f
 --- /dev/null
 +++ b/dlls/ntdll/unix/aoe_build_guard.h
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,163 @@
 +/* AoE IV build eligibility for the experimental Highball engine proposal.
 + * Copyright 2026 Highball engine proposal contributors.
 + * LGPL-2.1-or-later. Hash the same file descriptor Wine will map, not a reopened path. */
@@ -210,7 +207,11 @@ index 0000000..717486b
 +}
 +
 +/* Independent LGPL implementation; no MacGames application code is incorporated. */
-+struct aoe_image_layout { uint64_t base, image_size, text_start, text_end, data_start, data_end; };
++struct aoe_image_layout
++{
++    uint64_t base, image_size, text_start, text_end, data_start, data_end;
++    uint32_t text_offset, text_file_size;
++};
 +static uint32_t aoe_u32(const unsigned char *p)
 +{ return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24; }
 +static unsigned aoe_u16(const unsigned char *p) { return p[0] | p[1]<<8; }
@@ -248,9 +249,12 @@ index 0000000..717486b
 +        if (found++) return 0;
 +        text_size = aoe_u32(section+8); rva = aoe_u32(section+12);
 +        if (!(aoe_u32(section+36)&0x20000000) || rva!=0x1000 || text_size<=0x500 ||
-+            text_size>0x6000000 || rva+text_size>layout->image_size) return 0;
++            text_size>0x8000000 || rva+text_size>layout->image_size) return 0;
 +        layout->text_start = layout->base+rva;
 +        layout->text_end = layout->text_start+text_size-0x500;
++        layout->text_offset = aoe_u32(section+20);
++        layout->text_file_size = aoe_u32(section+16);
++        if (layout->text_file_size > text_size-0x500) layout->text_file_size = text_size-0x500;
 +    }
 +    return found==1;
 +}
@@ -279,10 +283,10 @@ index 0000000..717486b
 +#endif
 diff --git a/dlls/ntdll/unix/aoe_code_cache.h b/dlls/ntdll/unix/aoe_code_cache.h
 new file mode 100644
-index 0000000..d22e6e2
+index 0000000..a2b10de
 --- /dev/null
 +++ b/dlls/ntdll/unix/aoe_code_cache.h
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,179 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later
 + * GameToMac Wine changes: Marc Ibrahim; extensions: NerRobDog.
 + * Source commit: 711c6fc7559a565c417aab4d52d84b09767a9c1d. */
@@ -296,6 +300,7 @@ index 0000000..d22e6e2
 +#include <sys/stat.h>
 +#include "aoe_relocate.h"
 +extern BOOL aoe_game_verified;
++extern BOOL aoe_cache_auto_discovered;
 +extern uint64_t aoe_cache_pointer_address;
 +extern uint64_t aoe_cache_search_start, aoe_cache_search_end;
 +#define AOE_CACHE_COUNT 262144u
@@ -391,6 +396,44 @@ index 0000000..d22e6e2
 + if (!reported) fprintf(stderr,"AoE4 cache diagnostics: no candidate for resumed PC 0x%llx\n",(unsigned long long)pc);
 +
 +}
++
++static int aoe_live_ring_matches(uint64_t ring)
++{
++ const uint64_t end=ring+0x1000000;
++ uint64_t address=ring;
++
++ while (address<end)
++ {
++  MEMORY_BASIC_INFORMATION info;
++  uint64_t base;
++  if (NtQueryVirtualMemory(GetCurrentProcess(),(void *)(uintptr_t)address,
++                          MemoryBasicInformation,&info,sizeof(info),NULL) ||
++      info.State!=MEM_COMMIT || info.Type!=MEM_PRIVATE || (uintptr_t)info.AllocationBase!=ring ||
++      (info.Protect!=PAGE_EXECUTE_READ && info.Protect!=PAGE_EXECUTE_READWRITE &&
++       info.Protect!=PAGE_EXECUTE_WRITECOPY)) return 0;
++  base=(uintptr_t)info.BaseAddress;
++  if (base>address || info.RegionSize<=address-base || info.RegionSize>UINT64_MAX-base) return 0;
++  address=base+info.RegionSize;
++ }
++ return 1;
++}
++
++static int aoe_auto_ring_ready(uint64_t ring)
++{
++ static uint64_t accepted, rejected;
++ if (__atomic_load_n(&accepted,__ATOMIC_RELAXED)==ring) return 1;
++ if (__atomic_load_n(&rejected,__ATOMIC_RELAXED)==ring) return 0;
++ if (!aoe_live_ring_matches(ring))
++ {
++  if (__atomic_exchange_n(&rejected,ring,__ATOMIC_RELAXED)!=ring)
++   fprintf(stderr,"AoE4 cache: discovered ring allocation failed validation at %#llx\n",(unsigned long long)ring);
++  return 0;
++ }
++ if (__atomic_exchange_n(&accepted,ring,__ATOMIC_RELAXED)!=ring)
++  fprintf(stderr,"AoE4 cache: discovered ring allocation accepted at %#llx\n",(unsigned long long)ring);
++ return 1;
++}
++
 +static uint64_t aoe_cache_target(uint64_t pc)
 +{
 + uint64_t ring=0,hash=1469598103934665603ULL,result=pc;BYTE original[32],emitted[40];struct aoe_fragment_key key;unsigned available,i,index;
@@ -400,6 +443,7 @@ index 0000000..d22e6e2
 + if(!aoe_cache_enabled || pc<0x140000000ULL || pc>=0x180000000ULL)return pc;
 + if(virtual_uninterrupted_read_memory((void*)(uintptr_t)aoe_cache_pointer_address,&ring,sizeof(ring))!=sizeof(ring))return pc;
 + if(!ring || (ring&31) || ring>UINT64_MAX-0x1000000 || pc<ring || pc>=ring+0x1000000)return pc;
++ if(aoe_cache_auto_discovered && ((ring&0xfff) || !aoe_auto_ring_ready(ring)))return pc;
 + available=32-(pc-ring)%32;
 + if(virtual_uninterrupted_read_memory((void*)pc,original,available)!=available)return pc;
 + if(!aoe_fragment_key(original,available,pc,&key)){aoe_cache_count(4);pthread_mutex_lock(&aoe_cache_lock);aoe_cache_dump_unkeyable(pc,original,available);pthread_mutex_unlock(&aoe_cache_lock);return pc;}
@@ -1287,8 +1331,128 @@ index 0000000..50ccb83
 + unsigned i;memcpy(output,k->code,AOE_FRAGMENT_MAX);
 + for(i=0;i<k->count;i++){int64_t delta=(int64_t)k->targets[i]-(int64_t)(pc+k->ends[i]);int32_t d;if(delta<INT32_MIN||delta>INT32_MAX)return 0;d=delta;memcpy(output+k->offsets[i],&d,4);}return 1;
 +}
+diff --git a/dlls/ntdll/unix/aoe_ring_discovery.h b/dlls/ntdll/unix/aoe_ring_discovery.h
+new file mode 100644
+index 0000000..be08d43
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_ring_discovery.h
+@@ -0,0 +1,114 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++#ifndef HIGHBALL_AOE_RING_DISCOVERY_H
++#define HIGHBALL_AOE_RING_DISCOVERY_H
++
++#include "aoe_build_guard.h"
++
++#define AOE_RING_SIZE 0x1000000
++
++static uint64_t aoe_rip_relative(uint64_t next_pc, const unsigned char *displacement)
++{
++    return next_pc + (int32_t)aoe_u32(displacement);
++}
++
++static int aoe_is_ring_pointer(const struct aoe_image_layout *image, uint64_t address)
++{
++    return image->data_end > image->data_start && image->data_end-image->data_start >= 8 &&
++           !(address & 7) && address >= image->data_start && address <= image->data_end-8;
++}
++
++/* The writer wraps at 2^19 slots, shifts by five and adds the RIP-relative ring base.
++ * Both measured builds use EBX for the index and RBX for the address. */
++static uint64_t aoe_ring_writer(const unsigned char *code, size_t size, uint64_t pc)
++{
++    static const unsigned char writer[] = {
++        0x81,0xe3,0xff,0xff,0x07,0x00, /* and ebx, 0x7ffff */
++        0x48,0xc1,0xe3,0x05,           /* shl rbx, 5 */
++        0x48,0x03,0x1d                 /* add rbx, [rip+disp32] */
++    };
++    if (size < sizeof(writer)+4 || memcmp(code,writer,sizeof(writer))) return 0;
++    return aoe_rip_relative(pc+sizeof(writer)+4,code+sizeof(writer));
++}
++
++/* The initializer allocates 16 MiB plus a page with MEM_RESERVE|MEM_COMMIT and RWX,
++ * stores the returned address, and retries if it was null. Match the forms with the
++ * allocation size in r14 or r15 and require them to agree across the sequence. */
++#define AOE_RING_INITIALIZER_SIZE 47
++static uint64_t aoe_ring_initializer(const unsigned char *code, size_t size, uint64_t pc,
++                                     const struct aoe_image_layout *image)
++{
++    static const unsigned char alloc_flags[] = {
++        0x41,0xb9,0x40,0x00,0x00,0x00, /* mov r9d, PAGE_EXECUTE_READWRITE */
++        0x41,0xb8,0x00,0x30,0x00,0x00  /* mov r8d, MEM_RESERVE|MEM_COMMIT */
++    };
++    static const unsigned char call_and_store[] = {
++        0x48,0x8b,0xf8,0x48,0x89,0x05 /* mov rdi, rax; mov [rip+disp32], rax */
++    };
++    static const unsigned char retry[] = {0x48,0x85,0xc0,0x74,0xd7};
++    uint64_t target;
++    unsigned int reg;
++
++    if (size < AOE_RING_INITIALIZER_SIZE || code[0] != 0x41 ||
++        (code[1] != 0xbe && code[1] != 0xbf) || aoe_u32(code+2) != AOE_RING_SIZE+0x1000)
++        return 0;
++    reg = code[1] & 7;
++    if (code[6] != 0x49 || code[7] != 0x03 || code[8] != (0xd8 | reg) ||
++        memcmp(code+9,alloc_flags,sizeof(alloc_flags)) ||
++        code[21] != 0x49 || code[22] != 0x8b || code[23] != (0xd0 | reg) ||
++        memcmp(code+24,"\x48\x8b\xcb\xe8",4) ||
++        memcmp(code+32,call_and_store,sizeof(call_and_store)) ||
++        memcmp(code+42,retry,sizeof(retry))) return 0;
++
++    target = aoe_rip_relative(pc+32,code+28);
++    if (target < image->text_start || target >= image->text_end) return 0;
++    return aoe_rip_relative(pc+42,code+38);
++}
++
++/* Read from the same file descriptor Wine will map. Exactly one writer and exactly
++ * one initializer must reference the same aligned slot in the game's writable .data. */
++static uint64_t aoe_discover_ring_pointer(int fd, const struct aoe_image_layout *image, off_t file_size)
++{
++    enum { chunk_size = 65536 };
++    unsigned char code[chunk_size + AOE_RING_INITIALIZER_SIZE - 1];
++    uint64_t writer = 0, initializer = 0;
++    size_t offset;
++
++    if (file_size <= 0 || image->text_offset < 0x200 || !image->text_file_size ||
++        (uint64_t)image->text_offset+image->text_file_size > (uint64_t)file_size) return 0;
++    for (offset=0; offset<image->text_file_size; offset+=chunk_size)
++    {
++        size_t remaining = image->text_file_size-offset;
++        size_t size = remaining < sizeof(code) ? remaining : sizeof(code);
++        size_t starts = remaining < chunk_size ? remaining : chunk_size;
++        size_t done = 0, i;
++
++        while (done < size)
++        {
++            ssize_t count = pread(fd,code+done,size-done,(off_t)image->text_offset+offset+done);
++            if (count < 0 && errno == EINTR) continue;
++            if (count <= 0) return 0;
++            done += count;
++        }
++        for (i=0; i<starts; i++)
++        {
++            uint64_t pc = image->text_start+offset+i, candidate;
++            if (code[i] == 0x81)
++            {
++                candidate = aoe_ring_writer(code+i,size-i,pc);
++                if (!aoe_is_ring_pointer(image,candidate)) continue;
++                if (writer) return 0;
++                writer = candidate;
++            }
++            else if (code[i] == 0x41)
++            {
++                candidate = aoe_ring_initializer(code+i,size-i,pc,image);
++                if (!aoe_is_ring_pointer(image,candidate)) continue;
++                if (initializer) return 0;
++                initializer = candidate;
++            }
++        }
++    }
++    return writer == initializer ? writer : 0;
++}
++
++#endif
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 1b3f483..90bd092 100644
+index 1b3f483..3309b27 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -25,6 +25,8 @@
@@ -1300,13 +1464,14 @@ index 1b3f483..90bd092 100644
  #include <errno.h>
  #include <fcntl.h>
  #include <stdarg.h>
-@@ -101,6 +103,80 @@
+@@ -101,6 +103,96 @@
  WINE_DEFAULT_DEBUG_CHANNEL(module);
  WINE_DECLARE_DEBUG_CHANNEL(syscall);
  
 +#if defined(__APPLE__) && defined(__x86_64__)
-+#include "aoe_build_guard.h"
++#include "aoe_ring_discovery.h"
 +extern BOOL aoe_game_verified;
++extern BOOL aoe_cache_auto_discovered;
 +extern uint64_t aoe_cache_pointer_address;
 +extern uint64_t aoe_cache_search_start, aoe_cache_search_end;
 +static void x87_cooperative_handshake(void);
@@ -1336,42 +1501,57 @@ index 1b3f483..90bd092 100644
 +
 +static NTSTATUS aoe_check_image_handle(const char *name, HANDLE handle)
 +{
-+    int fd, needs_close, matches;
++    int fd, needs_close;
 +    NTSTATUS status;
 +    struct aoe_image_layout image;
++    struct stat before, after;
++    uint64_t pointer = 0;
++    BOOL automatic = FALSE;
 +    char digest[65], path[4096];
 +    const char *expected=getenv("AOE4_EXPECTED_SHA256"), *directory=getenv("AOE4_PROFILE_DIR");
++    const char *cache=getenv("AOE4_CACHE");
++    BOOL cache_requested=getenv("AOELAB_CODE_CACHE_GAME") && (!cache || strcmp(cache,"0"));
 +    FILE *profile;
 +    if (!aoe_patch_requested() || !aoe_game_name(name)) return STATUS_SUCCESS;
 +    if (!aoe_rosetta_supported()) return STATUS_NOT_SUPPORTED;
 +    if ((status=server_get_unix_fd(handle,FILE_READ_DATA,&fd,&needs_close,NULL,NULL))) return status;
-+    matches=aoe_inspect_game(fd,digest,&image) && expected && !strcmp(digest,expected);
++    if (fstat(fd,&before) || !aoe_inspect_game(fd,digest,&image) || !expected || strcmp(digest,expected))
++        status=STATUS_INVALID_IMAGE_HASH;
++    else if (cache_requested)
++    {
++        if (directory && directory[0]=='/' &&
++            snprintf(path,sizeof(path),"%s/%s.cache",directory,digest)<(int)sizeof(path) &&
++            (profile=fopen(path,"r")))
++        {
++            aoe_cache_profile(profile,digest,&image,&pointer);
++            fclose(profile);
++        }
++        if (!pointer)
++        {
++            pointer=aoe_discover_ring_pointer(fd,&image,before.st_size);
++            automatic=!!pointer;
++        }
++        if (fstat(fd,&after) || !aoe_same_file_state(&before,&after)) status=STATUS_INVALID_IMAGE_HASH;
++    }
 +    if (needs_close) close(fd);
-+    if (!matches)
++    if (status)
 +    {
 +        ERR("AoE4 executable changed between launch and SEC_IMAGE or failed layout checks\n");
-+        return STATUS_INVALID_IMAGE_HASH;
++        return status;
 +    }
 +    aoe_game_verified=TRUE;
 +    aoe_cache_search_start=image.data_start; aoe_cache_search_end=image.data_end;
-+    if (!getenv("AOELAB_CODE_CACHE_GAME") ||
-+        (getenv("AOE4_CACHE") && !strcmp(getenv("AOE4_CACHE"),"0")))
-+    {
++    aoe_cache_pointer_address=pointer;
++    aoe_cache_auto_discovered=automatic;
++    if (!cache_requested)
 +        ERR("AoE4 cache explicitly disabled; softfault/x87 selection unchanged\n");
-+        return STATUS_SUCCESS;
-+    }
-+    if (directory && directory[0]=='/' &&
-+        snprintf(path,sizeof(path),"%s/%s.cache",directory,digest)<(int)sizeof(path) &&
-+        (profile=fopen(path,"r")))
-+    {
-+        matches=aoe_cache_profile(profile,digest,&image,&aoe_cache_pointer_address);
-+        fclose(profile);
-+        if (!matches) aoe_cache_pointer_address=0;
-+    }
-+    if (!aoe_cache_pointer_address)
-+        ERR("AoE4 cache unavailable: no valid measured ring profile for SHA256 %s; softfault+x87 still enabled\n",digest);
++    else if (!pointer)
++        ERR("AoE4 cache unavailable: no measured profile or recognized ring for SHA256 %s\n",digest);
++    else if (automatic)
++        ERR("AoE4 cache ring discovered: SHA256 %s, pointer RVA %#llx; awaiting live allocation\n",
++            digest,(unsigned long long)(pointer-image.base));
 +    else ERR("AoE4 cache profile accepted: SHA256 %s, ring pointer %llx\n",digest,
-+             (unsigned long long)aoe_cache_pointer_address);
++             (unsigned long long)pointer);
 +    return STATUS_SUCCESS;
 +}
 +
@@ -1381,12 +1561,13 @@ index 1b3f483..90bd092 100644
  #if defined __i386__ || defined __x86_64__
  #define SO_DLLS_SUPPORTED
  #endif
-@@ -1471,6 +1547,12 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
+@@ -1471,6 +1563,13 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
  #endif
  
  
 +
 +uint64_t aoe_cache_pointer_address, aoe_cache_search_start, aoe_cache_search_end;
++BOOL aoe_cache_auto_discovered;
 +BOOL aoe_game_verified; /* Remains false until the actual executable passes the build guard. */
 +#ifdef __x86_64__
 +extern NTSTATUS aoe_exception_context(void *args);
@@ -1394,7 +1575,7 @@ index 1b3f483..90bd092 100644
  static const unixlib_entry_t unix_call_funcs[] =
  {
      load_so_dll,
-@@ -1483,6 +1565,7 @@ static const unixlib_entry_t unix_call_funcs[] =
+@@ -1483,6 +1582,7 @@ static const unixlib_entry_t unix_call_funcs[] =
      system_time_precise,
  #if defined(__x86_64__)
      pe_module_loaded,
@@ -1402,7 +1583,7 @@ index 1b3f483..90bd092 100644
  #endif
  };
  
-@@ -1518,6 +1601,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
+@@ -1518,6 +1618,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
      system_time_precise,
  #if defined(__x86_64__)
      wow64_pe_module_loaded,
@@ -1410,7 +1591,7 @@ index 1b3f483..90bd092 100644
  #endif
  };
  
-@@ -1569,6 +1653,14 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
+@@ -1569,6 +1670,14 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
          return STATUS_DLL_NOT_FOUND;
      }
  
@@ -1425,7 +1606,7 @@ index 1b3f483..90bd092 100644
      size.QuadPart = 0;
      status = NtCreateSection( mapping, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
                                SECTION_MAP_READ | SECTION_MAP_EXECUTE,
-@@ -1867,6 +1959,11 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
+@@ -1867,6 +1976,11 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
              info->Machine = native_machine;
              status = STATUS_SUCCESS;
          }
@@ -1437,7 +1618,7 @@ index 1b3f483..90bd092 100644
          NtClose( mapping );
      }
      else if (status == STATUS_INVALID_IMAGE_NOT_MZ && loadorder != LO_NATIVE)
-@@ -2141,6 +2238,29 @@ static void load_ntdll(void)
+@@ -2141,6 +2255,29 @@ static void load_ntdll(void)
      if (status) fatal_error( "failed to load %s error %x\n", name, status );
      free( name );
      load_ntdll_functions( module );
@@ -1467,7 +1648,7 @@ index 1b3f483..90bd092 100644
      if (is_arm64ec()) redirect_ntdll_functions( module );
  }
  
-@@ -2336,6 +2456,17 @@ static void start_main_thread(void)
+@@ -2336,6 +2473,17 @@ static void start_main_thread(void)
      init_thread_stack( teb, 0, 0, 0 );
      NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
      load_ntdll();
@@ -1485,7 +1666,7 @@ index 1b3f483..90bd092 100644
      load_wow64_ntdll( main_image_info.Machine );
      load_apiset_dll();
  
-@@ -2816,8 +2947,8 @@ static void x87_cooperative_handshake(void)
+@@ -2816,8 +2964,8 @@ static void x87_cooperative_handshake(void)
       * notification to the reply port instead, which has a different id and
       * size. */
      memset( &rep, 0, sizeof(rep) );
@@ -1496,7 +1677,7 @@ index 1b3f483..90bd092 100644
      if (verbose) ERR( "x87 coop: handshake reply kr=0x%x id=0x%x size=%u\n", kr,
                        rep.reply.header.msgh_id, rep.reply.header.msgh_size );
  
-@@ -2846,6 +2977,14 @@ done:
+@@ -2846,6 +2994,14 @@ done:
      /* Destroy the reply port, so that a late reply finds no receiver. */
      if (reply != MACH_PORT_NULL) mach_port_mod_refs( mach_task_self(), reply, MACH_PORT_RIGHT_RECEIVE, -1 );
      if (service != MACH_PORT_NULL) mach_port_deallocate( mach_task_self(), service );
@@ -1511,7 +1692,7 @@ index 1b3f483..90bd092 100644
      if (reason[0]) x87_coop_unhooked( reason );
      unsetenv( X87_COOP_ENV );
  }
-@@ -2857,18 +2996,105 @@ done:
+@@ -2857,18 +3013,110 @@ done:
   *
   * Main entry point called by the wine loader.
   */
@@ -1565,9 +1746,14 @@ index 1b3f483..90bd092 100644
 +    if (!loader || loader[0]!='/' || access(loader,X_OK))
 +        fatal_error("AoE4 loader must be an absolute executable path\n");
 +    fd=aoe_open_game_argument(argv[1]);
-+    if (fd<0) fatal_error("AoE4 cannot open executable for layout verification\n");
-+    ok=aoe_inspect_game(fd,digest,&image); close(fd);
-+    if (!ok) fatal_error("AoE4 executable has an unsupported PE layout\n");
++    ok=fd>=0 && aoe_inspect_game(fd,digest,&image);
++    if (fd>=0) close(fd);
++    if (!ok)
++    {
++        ERR("AoE4 executable could not be verified; continuing with the stock Wine launch\n");
++        setenv("AOE4_DISABLED","1",1);
++        return;
++    }
 +    setenv("AOE4_EXPECTED_SHA256",digest,1);
 +    setenv("AOELAB_SOFTFAULT_BRIDGE","1",1);
 +    snprintf(address,sizeof(address),"0x%llx",(unsigned long long)image.text_start);

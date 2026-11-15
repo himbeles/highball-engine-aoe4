@@ -47,6 +47,16 @@ The cache-enabled trace added 1,354,730 hits, with zero new entries and zero rec
 fallbacks. The disabled process logged the override and produced no cache counters. Loading
 times can include OS cache and run-order effects.
 
+## Discovery across game versions
+
+The same detector found the measured pointer RVA `0x7af7ad0` in 16.3.11308.0 and `0x7c9f9d8`
+in 17.0.12303.0. The rebuilt engine launched 17.0 through Steam with an empty profile directory,
+validated the live allocation at `0x149e00000` and recorded 898,714 cache hits with the game at
+the graphics-driver check. Native and Rosetta tests covered signature reads across a file
+chunk boundary, mismatched and duplicate references, a changed slot shift and a truncated
+live allocation. A synthetic executable named `RelicCardinal.exe` with a different PE image
+base completed through the stock Wine launch.
+
 ## Steam browser startup
 
 On the same D3DMetal bottle, Steam's browser GPU process repeatedly exited on both unpatched

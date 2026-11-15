@@ -12,8 +12,10 @@ if [[ $(uname -s) != Darwin ]]; then
 fi
 "$cc" "${common[@]}" "$proposal_dir/tests/test_guard.c" "${digest_flags[@]}" -o "$work/guard"
 "$cc" "${common[@]}" "$proposal_dir/tests/test_layout.c" "${digest_flags[@]}" -o "$work/layout"
+"$cc" "${common[@]}" "$proposal_dir/tests/test_discovery.c" "${digest_flags[@]}" -o "$work/discovery"
 "$work/layout"
 "$work/guard"
+"$work/discovery"
 if [[ $(uname -m) == x86_64 ]]; then
   "$cc" "${common[@]}" "$proposal_dir/tests/test_relocator.c" -o "$work/relocator"
   "$work/relocator"
@@ -22,6 +24,8 @@ if [[ $(uname -m) == x86_64 ]]; then
   "$work/cache" unverified
   "$work/cache" other-game
   "$work/cache" missing-profile
+  "$work/cache" auto
+  "$work/cache" auto-invalid
   AOELAB_COUNTERS_DIR="$work/counters" "$work/cache"
   python3 "$proposal_dir/cache-stats.py" "$work/counters" --require-active
 else

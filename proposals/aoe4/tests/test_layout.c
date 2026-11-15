@@ -28,6 +28,7 @@ int main(void)
  assert(!profile("aoe4-cache-v1 5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c 1000 1000000 20",hash,&image,&pointer));
  assert(!profile("aoe4-cache-v1 5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c 7af7ad0 2000000 20",hash,&image,&pointer));
  assert(!profile("aoe4-cache-v1 5380c577805565817f528af6eac385263413fa6815553f9a31fa62561cb45e8c 7af7ad0 1000000 20 extra",hash,&image,&pointer));
+ put32(pe+400,0x6500000);assert(pwrite(fd,pe,sizeof(pe),0)==sizeof(pe));assert(aoe_read_layout(fd,&image));
  pe[132]=0x4c;assert(pwrite(fd,pe,sizeof(pe),0)==sizeof(pe));assert(!aoe_read_layout(fd,&image));
  pe[132]=0x64;put32(pe+60,0xfffffff0);assert(pwrite(fd,pe,sizeof(pe),0)==sizeof(pe));assert(!aoe_read_layout(fd,&image));
  put32(pe+60,128);put32(pe+400,0xfffffff0);assert(pwrite(fd,pe,sizeof(pe),0)==sizeof(pe));assert(!aoe_read_layout(fd,&image));

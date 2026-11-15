@@ -4,11 +4,13 @@ This trial combines the existing Rosetta cooperative x87 attach path with an AoE
 decoder and a generated-code cache. It targets the x86-64 Wine 11 line and activates for
 `RelicCardinal.exe` through a separate trial engine manifest.
 
-Wine checks the executable's PE layout before attaching the arm64 helper. The cache requires an
-exact executable SHA-256 match and an aligned pointer RVA in writable `.data`. The profiles use
-the observed 16 MiB allocation and 32-byte fragments. Wine leaves caching disabled if profile
-validation fails and continues with the combined decoder. Cache entries retain the original
-game PC for exception reporting and refuse unsupported fragments.
+Wine checks the executable's PE layout before attaching the arm64 helper. The cache first looks
+for a profile matching the executable's SHA-256. Otherwise it finds the ring pointer by matching
+the allocator and slot writer in `.text`. Both must refer to the same unique, aligned location
+in writable `.data`. The discovered pointer must also lead to a 16 MiB executable allocation
+before the cache handles any 32-byte slots. Inconclusive discovery leaves the combined decoder
+active with caching off. An unsupported image layout uses the stock Wine launch. Cache entries
+retain the original game PC for exception reporting and refuse unsupported fragments.
 
 The trial includes measured profiles for 16.3.11308.0 and 17.0.12303.0. The latter has been
 tested in one solo skirmish. See [validation](VALIDATION.md) for the hardware, build, matched
@@ -36,8 +38,8 @@ From the CLI, use `highball run --renderer dxmt AoE4 Steam` to open Steam's Libr
 game with D3DMetal after browsing, quit Steam first and run
 `highball run AoE4 Steam -- -silent -applaunch 1466860`. The graphics driver check
 may display a modal because Wine presents an AMD compatibility adapter. Acknowledge it to continue.
-Check the Highball log for `AoE4 cache profile accepted` and use the bottle's counter directory
-to confirm that the game actually hit the cache.
+Check the Highball log for `AoE4 cache profile accepted` or `discovered ring allocation accepted`.
+Use the bottle's counter directory to confirm that the game actually hit the cache.
 
 ```bash
 python3 proposals/aoe4/cache-stats.py /path/to/bottle/aoe4-counters --require-active
@@ -60,10 +62,11 @@ The executable cache and relocator tests run on x86-64. On Apple Silicon, run th
 script under Rosetta with `arch -x86_64 /bin/bash`. The macOS build uses
 `build-sidecar.sh` to validate and build the pinned arm64 helper with Xcode and CMake.
 
-For a new game build, inspect the live ring and confirm the pointer location, allocation bounds,
-slot size, wrap and cleanup before generating a profile with `profile.py`. Diagnostic scans
-with `AOE4_CACHE_DIAGNOSTICS=1` print candidates for inspection. Cache activation still requires a
-matching profile. Refresh the source lock when rebasing to a different Wine patch series.
+After an update, check the discovery and cache counters first. If the allocator or slot writer
+changed, inspect the live ring and confirm the pointer location, allocation bounds, slot size,
+wrap and cleanup before generating a profile with `profile.py`. Diagnostic scans with
+`AOE4_CACHE_DIAGNOSTICS=1` print candidates for inspection. Refresh the source lock when rebasing
+to a different Wine patch series.
 
 ## Provenance
 

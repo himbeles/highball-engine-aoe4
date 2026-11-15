@@ -33,6 +33,7 @@
     "dlls/ntdll/unix/aoe_hde_impl.h": null,
     "dlls/ntdll/unix/aoe_hde_table.h": null,
     "dlls/ntdll/unix/aoe_relocate.h": null,
+    "dlls/ntdll/unix/aoe_ring_discovery.h": null,
     "dlls/ntdll/unix/loader.c": "842dc0c831b296e5376f793037ef7b87464d2d7093495fde10eaf849f11bacc0",
     "dlls/ntdll/unix/signal_x86_64.c": "3ef82793f789ef3b468c80ba18a65ec50b7f1377349a1ee6a0fa5f7c338d8a89",
     "dlls/ntdll/unixlib.h": "63419c7fce9fc8d9f725134793457856375a72a5c43450987bc7d94aa484c0e1"
