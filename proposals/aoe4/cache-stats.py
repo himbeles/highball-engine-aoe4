@@ -13,7 +13,7 @@ for path in sorted(a.directory.glob('codecache-*.bin')):
     magic,version,pid,count,*stats=struct.unpack('<20Q',data[:160])
     if (magic,version,count)!=(0x414f454341434831,1,16):p.error('unknown counters format: '+str(path))
     rows.append({'pid':pid,'lookups':stats[0],'redirects':stats[1],'hits':stats[2],
-                 'insertions':stats[3],'unkeyable':stats[4],'fallbacks':stats[6],
+                 'insertions':stats[3],'unkeyable':stats[4],'jump_hits':stats[5],'fallbacks':stats[6],
                  'mapped_contexts':stats[7],'slots_used':stats[8]})
 print(json.dumps(rows,indent=2))
 if a.require_active and not any(row['hits']>0 and row['redirects']>0 for row in rows):

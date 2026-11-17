@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/mman.h>
 typedef int BOOL;
+typedef uintptr_t UINT_PTR;
 BOOL aoe_game_verified=1;
 BOOL aoe_cache_auto_discovered;
 uint64_t test_ring;
@@ -43,6 +44,19 @@ static int NtAllocateVirtualMemory(int h, void **p, int z, SIZE_T *n, int flags,
 }
 static int NtFreeVirtualMemory(int h,void **p,SIZE_T *n,int flags) { (void)h;(void)n;(void)flags;return munmap(*p,262144*64); }
 static SIZE_T virtual_uninterrupted_read_memory(const void *p,void *q,SIZE_T n) {memcpy(q,p,n);return n;}
+static BOOL fail_snapshot;
+static SIZE_T virtual_read_aoe_fragment(const void *pointer, UINT_PTR pc, UINT_PTR *ring, BYTE *bytes)
+{
+    SIZE_T length;
+
+    if (fail_snapshot) return 0;
+    memcpy(ring, pointer, sizeof(*ring));
+    if (!*ring || (*ring & 31) || *ring > UINTPTR_MAX - 0x1000000 ||
+        pc < *ring || pc - *ring >= 0x1000000) return 0;
+    length = 32 - (pc - *ring) % 32;
+    memcpy(bytes, (void *)pc, length);
+    return length;
+}
 #include "aoe_code_cache.h"
 int main(int argc,char **argv) {
  int auto_invalid=argc>1 && !strcmp(argv[1],"auto-invalid");
@@ -63,12 +77,35 @@ int main(int argc,char **argv) {
  }
  uint64_t a=aoe_cache_target((uint64_t)ring),b=aoe_cache_target((uint64_t)ring+32);assert(a!=(uint64_t)ring);assert(a==b);assert(aoe_cache_used==1);
  assert(((int(*)(void))(uintptr_t)a)()==42);assert(!memcmp(ring,code,sizeof code));assert(aoe_cache_logical_pc(b+2)==(uint64_t)ring+34);
+ fail_snapshot=1;
+ assert(aoe_cache_target((uintptr_t)ring)==(uintptr_t)ring && aoe_cache_used==1);
+ fail_snapshot=0;
  ring[64]=0xe8;assert(aoe_cache_target((uint64_t)ring+64)==(uint64_t)ring+64);
  assert(aoe_cache_target(0x1000)==0x1000);
  test_ring=(uintptr_t)ring+1;assert(aoe_cache_target((uintptr_t)ring)==(uintptr_t)ring);
  test_ring=0;assert(aoe_cache_target((uintptr_t)ring)==(uintptr_t)ring);test_ring=(uintptr_t)ring;
  ring[1]=43;uint64_t changed=aoe_cache_target((uintptr_t)ring);
  assert(changed!=a && ((int(*)(void))(uintptr_t)changed)()==43 && aoe_cache_used==2);
+ /* The same instruction and absolute target can appear in different ring slots. */
+ BYTE branch[] = {0x31, 0xc0, 0xe9, 0, 0, 0, 0};
+ const unsigned first=96, second=128, destination=1024;
+ int32_t displacement=destination-first-sizeof(branch);
+ memcpy(branch+3,&displacement,sizeof(displacement));
+ memcpy(ring+first,branch,sizeof(branch));
+ memcpy(ring+second,branch,sizeof(branch)); /* same relative bytes, different absolute target */
+ ring[destination]=ring[destination+(second-first)]=0xc3;
+ uint64_t branch_a=aoe_cache_target((uintptr_t)ring+first);
+ uint64_t branch_b=aoe_cache_target((uintptr_t)ring+second);
+ assert(branch_a!=(uintptr_t)ring+first && branch_b!=(uintptr_t)ring+second && branch_a!=branch_b);
+ displacement=destination-second-sizeof(branch);
+ memcpy(ring+second+3,&displacement,sizeof(displacement));
+ assert(aoe_cache_target((uintptr_t)ring+second)==branch_a && aoe_cache_stats[5]>0);
+ assert(((int(*)(void))(uintptr_t)branch_a)()==0);
+ /* Reuse is refused if the same target is now inside the source slot. */
+ displacement=-(int32_t)sizeof(branch);
+ memcpy(branch+3,&displacement,sizeof(displacement));
+ memcpy(ring+destination,branch,sizeof(branch));
+ assert(aoe_cache_target((uintptr_t)ring+destination)==(uintptr_t)ring+destination);
  assert(ring_queries==(aoe_cache_auto_discovered ? 1 : 0));
  puts("PASS: deduplication, executable result, original bytes, PC mapping, fallback");
 }

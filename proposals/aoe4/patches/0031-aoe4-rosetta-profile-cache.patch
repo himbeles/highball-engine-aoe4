@@ -283,10 +283,10 @@ index 0000000..426897f
 +#endif
 diff --git a/dlls/ntdll/unix/aoe_code_cache.h b/dlls/ntdll/unix/aoe_code_cache.h
 new file mode 100644
-index 0000000..a2b10de
+index 0000000..56fa2af
 --- /dev/null
 +++ b/dlls/ntdll/unix/aoe_code_cache.h
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,237 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later
 + * GameToMac Wine changes: Marc Ibrahim; extensions: NerRobDog.
 + * Source commit: 711c6fc7559a565c417aab4d52d84b09767a9c1d. */
@@ -346,6 +346,33 @@ index 0000000..a2b10de
 +static __thread uint64_t aoe_cache_thread_original,aoe_cache_thread_shadow;
 +static __thread unsigned aoe_cache_thread_len;
 +static void aoe_cache_count(unsigned n){__atomic_fetch_add(&__atomic_load_n(&aoe_cache_stats,__ATOMIC_RELAXED)[n],1,__ATOMIC_RELAXED);}
++
++#define AOE_RECENT_JUMP_BITS 12
++/* The shared entries are immutable after insertion. The per-thread index
++ * only points to entries already accepted by the full relocator. */
++static __thread const struct aoe_cache_entry *aoe_recent_jumps[1u << AOE_RECENT_JUMP_BITS];
++
++static BOOL aoe_cache_matches_jump(const struct aoe_cache_entry *entry, const BYTE *bytes,
++                                   unsigned prefix, uint64_t target)
++{
++    const struct aoe_fragment_key *key = &entry->key;
++
++    return key->count == 1 && key->len == prefix + 4 && key->offsets[0] == prefix &&
++           key->ends[0] == key->len && key->targets[0] == target &&
++           !memcmp(key->code, bytes, prefix);
++}
++
++static uint64_t aoe_cache_redirect(uint64_t pc, const struct aoe_cache_entry *entry)
++{
++    uint64_t target = (uint64_t)(aoe_cache_code + entry->slot * 64);
++
++    aoe_cache_thread_original = pc;
++    aoe_cache_thread_shadow = target;
++    aoe_cache_thread_len = entry->key.len;
++    aoe_cache_count(1);
++    return target;
++}
++
 +static uint64_t aoe_cache_logical_pc(uint64_t pc)
 +{
 + if(aoe_cache_thread_shadow && pc>=aoe_cache_thread_shadow && pc<aoe_cache_thread_shadow+aoe_cache_thread_len){aoe_cache_count(7);return aoe_cache_thread_original+(pc-aoe_cache_thread_shadow);}return pc;
@@ -370,13 +397,14 @@ index 0000000..a2b10de
 +{
 + static unsigned scans;
 + static time_t last;
-+ time_t now=time(NULL), previous;
++ time_t now, previous;
 + uint64_t address;
 + unsigned reported=0;
 + if (!aoe_game_verified || aoe_cache_pointer_address || !getenv("AOE4_CACHE_DIAGNOSTICS") ||
 +     !aoe_cache_search_start || aoe_cache_search_end<aoe_cache_search_start ||
 +     aoe_cache_search_end-aoe_cache_search_start>0x4000000 ||
 +     pc<0x140000000ULL || pc>=0x180000000ULL) return;
++ now=time(NULL);
 + previous=__atomic_exchange_n(&last,now,__ATOMIC_RELAXED);
 + if (previous==now || __atomic_fetch_add(&scans,1,__ATOMIC_RELAXED)>=64) return;
 + for (address=aoe_cache_search_start; address<aoe_cache_search_end; address+=4096)
@@ -436,18 +464,44 @@ index 0000000..a2b10de
 +
 +static uint64_t aoe_cache_target(uint64_t pc)
 +{
-+ uint64_t ring=0,hash=1469598103934665603ULL,result=pc;BYTE original[32],emitted[40];struct aoe_fragment_key key;unsigned available,i,index;
-+ aoe_cache_candidates(pc);
-+ if(!aoe_game_verified || !aoe_cache_pointer_address)return pc;
++ UINT_PTR ring=0;
++ uint64_t hash=1469598103934665603ULL,jump_target=0,jump_hash;
++ BYTE original[32],emitted[40],*jump;
++ struct aoe_fragment_key key;
++ const struct aoe_cache_entry *entry=NULL,*recent;
++ unsigned available,i,index,prefix=0,jump_index=0;
++ int32_t displacement;
++ if(!aoe_game_verified)return pc;
++ if(!aoe_cache_pointer_address){aoe_cache_candidates(pc);return pc;}
 + pthread_once(&aoe_cache_enable_once,aoe_cache_check_enabled);
 + if(!aoe_cache_enabled || pc<0x140000000ULL || pc>=0x180000000ULL)return pc;
-+ if(virtual_uninterrupted_read_memory((void*)(uintptr_t)aoe_cache_pointer_address,&ring,sizeof(ring))!=sizeof(ring))return pc;
-+ if(!ring || (ring&31) || ring>UINT64_MAX-0x1000000 || pc<ring || pc>=ring+0x1000000)return pc;
++ available=virtual_read_aoe_fragment((const void*)(uintptr_t)aoe_cache_pointer_address,pc,&ring,original);
++ if(!available)return pc;
 + if(aoe_cache_auto_discovered && ((ring&0xfff) || !aoe_auto_ring_ready(ring)))return pc;
-+ available=32-(pc-ring)%32;
-+ if(virtual_uninterrupted_read_memory((void*)pc,original,available)!=available)return pc;
++ /* Most generated slots end in a near jump. Look up the instruction
++  * bytes and absolute destination so the ring's changing PC can be reused. */
++ if(available>=5 && (jump=memchr(original,0xe9,available-4)))
++ {
++    prefix=jump-original+1;
++    memcpy(&displacement,jump+1,sizeof(displacement));
++    jump_target=pc+prefix+4+displacement;
++    if(jump_target>=pc && jump_target-pc<available)prefix=0;
++    else
++    {
++        jump_hash=jump_target;
++        for(i=0;i<prefix;i++)jump_hash=(jump_hash^original[i])*1099511628211ULL;
++        jump_index=jump_hash>>(64-AOE_RECENT_JUMP_BITS);
++        recent=__atomic_load_n(&aoe_recent_jumps[jump_index],__ATOMIC_RELAXED);
++        if(recent && aoe_cache_matches_jump(recent,original,prefix,jump_target))
++        {
++            aoe_cache_count(0);
++            aoe_cache_count(2);
++            aoe_cache_count(5);
++            return aoe_cache_redirect(pc,recent);
++        }
++    }
++ }
 + if(!aoe_fragment_key(original,available,pc,&key)){aoe_cache_count(4);pthread_mutex_lock(&aoe_cache_lock);aoe_cache_dump_unkeyable(pc,original,available);pthread_mutex_unlock(&aoe_cache_lock);return pc;}
-+ { BYTE check[32]; if(virtual_uninterrupted_read_memory((void*)pc,check,available)!=available || memcmp(original,check,available))return pc; }
 + for(i=0;i<sizeof(key);i++){hash^=((BYTE*)&key)[i];hash*=1099511628211ULL;}if(!hash)hash=1;
 + pthread_mutex_lock(&aoe_cache_lock);
 + if(!aoe_cache_attempted)aoe_cache_init();aoe_cache_count(0);
@@ -455,16 +509,20 @@ index 0000000..a2b10de
 + index=hash&(AOE_CACHE_TABLE-1);
 + for(i=0;i<64;i++,index=(index+1)&(AOE_CACHE_TABLE-1)){
 +  struct aoe_cache_entry *e=&aoe_cache_entries[index];
-+  if(e->hash==hash&&!memcmp(&e->key,&key,sizeof(key))){aoe_cache_count(2);result=(uint64_t)(aoe_cache_code+e->slot*64);break;}
++  if(e->hash==hash&&!memcmp(&e->key,&key,sizeof(key))){aoe_cache_count(2);entry=e;break;}
 +  if(!e->hash){
 +   BYTE *target;if(aoe_cache_used==AOE_CACHE_COUNT){aoe_cache_count(6);break;}target=aoe_cache_code+aoe_cache_used*64;
 +   if(!aoe_fragment_emit(&key,(uint64_t)target,emitted)){aoe_cache_count(6);break;}
-+   memcpy(target,emitted,40);e->key=key;e->slot=aoe_cache_used++;e->hash=hash;aoe_cache_count(3);__atomic_store_n(&aoe_cache_stats[8],aoe_cache_used,__ATOMIC_RELAXED);result=(uint64_t)target;break;
++   memcpy(target,emitted,40);e->key=key;e->slot=aoe_cache_used++;e->hash=hash;aoe_cache_count(3);__atomic_store_n(&aoe_cache_stats[8],aoe_cache_used,__ATOMIC_RELAXED);entry=e;break;
 +  }
 + }
 + if(i==64)aoe_cache_count(6);
-+ if(result!=pc){aoe_cache_thread_original=pc;aoe_cache_thread_shadow=result;aoe_cache_thread_len=key.len;aoe_cache_count(1);}
-+done:pthread_mutex_unlock(&aoe_cache_lock);return result;
++done:
++ pthread_mutex_unlock(&aoe_cache_lock);
++ if(!entry)return pc;
++ if(prefix && aoe_cache_matches_jump(entry,original,prefix,jump_target))
++    __atomic_store_n(&aoe_recent_jumps[jump_index],entry,__ATOMIC_RELAXED);
++ return aoe_cache_redirect(pc,entry);
 +}
 diff --git a/dlls/ntdll/unix/aoe_hde64.h b/dlls/ntdll/unix/aoe_hde64.h
 new file mode 100644
@@ -1914,3 +1972,116 @@ index 3a4a370..5dddcda 100644
  #endif
  };
  
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -308,6 +308,9 @@
+ extern BOOL virtual_check_buffer_for_read( const void *ptr, SIZE_T size );
+ extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
+ extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
++#ifdef __x86_64__
++extern SIZE_T virtual_read_aoe_fragment( const void *ring_address, UINT_PTR pc, UINT_PTR *ring, BYTE *bytes );
++#endif
+ extern NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );
+ extern void virtual_set_force_exec( BOOL enable );
+ extern void virtual_enable_write_exceptions( BOOL enable );
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4893,6 +4893,30 @@
+ }
+
+
++static SIZE_T read_memory_locked( const void *addr, void *buffer, SIZE_T size )
++{
++    struct file_view *view;
++    SIZE_T bytes_read = 0;
++
++    if ((view = find_view( addr, size )))
++    {
++        if (!(view->protect & VPROT_SYSTEM))
++        {
++            while (bytes_read < size && (get_unix_prot( get_host_page_vprot( addr )) & PROT_READ))
++            {
++                SIZE_T block_size = min( size - bytes_read, host_page_size - ((UINT_PTR)addr & host_page_mask) );
++                memcpy( buffer, addr, block_size );
++
++                addr   = (const void *)((const char *)addr + block_size);
++                buffer = (void *)((char *)buffer + block_size);
++                bytes_read += block_size;
++            }
++        }
++    }
++    return bytes_read;
++}
++
++
+ /***********************************************************************
+  *           virtual_uninterrupted_read_memory
+  *
+@@ -4902,31 +4926,47 @@
+  */
+ SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size )
+ {
+-    struct file_view *view;
++    SIZE_T bytes_read;
+     sigset_t sigset;
+-    SIZE_T bytes_read = 0;
+
+     if (!size) return 0;
+-
+     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+-    if ((view = find_view( addr, size )))
+-    {
+-        if (!(view->protect & VPROT_SYSTEM))
+-        {
+-            while (bytes_read < size && (get_unix_prot( get_host_page_vprot( addr )) & PROT_READ))
+-            {
+-                SIZE_T block_size = min( size - bytes_read, host_page_size - ((UINT_PTR)addr & host_page_mask) );
+-                memcpy( buffer, addr, block_size );
+-
+-                addr   = (const void *)((const char *)addr + block_size);
+-                buffer = (void *)((char *)buffer + block_size);
+-                bytes_read += block_size;
+-            }
+-        }
+-    }
++    bytes_read = read_memory_locked( addr, buffer, size );
+     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+     return bytes_read;
+ }
++
++
++#ifdef __x86_64__
++/* Keep the ring and fragment reads in one VM section. The VM lock protects
++ * mappings, so sample the bytes twice to detect concurrent game writes. */
++SIZE_T virtual_read_aoe_fragment( const void *ring_address, UINT_PTR pc, UINT_PTR *ring, BYTE *bytes )
++{
++    static const UINT_PTR ring_size = 0x1000000;
++    BYTE check[32];
++    SIZE_T length = 0;
++    sigset_t sigset;
++
++    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
++    if (read_memory_locked( ring_address, ring, sizeof(*ring) ) == sizeof(*ring) &&
++        *ring && !(*ring & 31) && *ring <= ~(UINT_PTR)0 - ring_size &&
++        pc >= *ring && pc - *ring < ring_size)
++    {
++        length = sizeof(check) - (pc - *ring) % sizeof(check);
++        if (read_memory_locked( (const void *)pc, bytes, length ) != length)
++            length = 0;
++        else
++        {
++            __atomic_signal_fence( __ATOMIC_SEQ_CST );
++            /* The successful read validated this range under the same VM lock. */
++            memcpy( check, (const void *)pc, length );
++            if (memcmp( bytes, check, length )) length = 0;
++        }
++    }
++    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
++    return length;
++}
++#endif
+
+
+ /***********************************************************************

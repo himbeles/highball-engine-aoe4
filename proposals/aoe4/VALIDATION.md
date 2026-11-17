@@ -66,6 +66,44 @@ window still displayed black. A screen recording verified that Steam's Library l
 responded on both engines when Steam was started with DXMT, following Highball's existing
 [Steam window behavior](https://github.com/gauthierpiarrette/highball/issues/416).
 
+## Late Siege frame pacing
+
+On the M2 Max with the 1512×982 built-in display, AoE IV 17.0.12303.0 still
+hitched roughly twice per second in the village view. The Metal trace
+showed the GPU waiting for submissions. In a separate CPU trace, the game's
+main thread spent roughly two thirds of its running samples during long
+frames in Wine's context restore. A typical long frame coincided with about
+33,000 cache hits and zero insertions or fallbacks. Independent [FEX
+analysis](https://github.com/tarikbc/ageofempires-android/blob/main/docs/how-it-works/INSTRUCTION-STEPPER.md)
+identifies the same 16 MiB ring as the Aegis instruction stepper.
+
+The local build reads the pointer and verifies the fragment in a single
+Wine VM lock acquisition. The next change reuses a previously relocated
+fragment when an exact instruction prefix and absolute jump target match
+across ring slots. The shortcut accounted for about 94% of cache hits by
+the end of the run.
+
+The following 25-second windows used the same isolated bottle, display,
+graphics settings and game build. The fixed scene had 71 render encoders
+and 3,419 to 3,420 fragment draws per frame. FPS is the Metal performance
+trace value. The 99th percentile comes from the per-frame HUD log.
+
+| Engine variant | Displayed FPS | P99 frame interval | Longest interval |
+| --- | ---: | ---: | ---: |
+| Published r1 | 44.4 | 166.7 ms | 183.3 ms |
+| Batched memory reads | 49.2 | 120.8 ms | 141.7 ms |
+| Batched reads and jump lookup | 49.7 | 108.3 ms | 125.0 ms |
+
+During the jump-lookup run, panning away reduced the fragment draw count
+to 1,644 while the stalls continued. In that lighter view, 829 of 1,739
+running samples on the main thread during long frames included the
+remaining protected memory read. Returning toward the village via the
+minimap yielded 58.3 FPS and a 33.3 ms P99 over 18 seconds, with around
+3,271 draws and zero new cache entries. A separate 19-second capture
+after the player selected and moved units ran at 58.7 FPS with a 33.3 ms
+P99 and around 3,620 draws. The game condition that schedules the bursts
+remains to be identified.
+
 ## Build checks and remaining validation
 
 - The [prototype Intel macOS build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/43691361823)

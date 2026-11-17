@@ -25,6 +25,8 @@
     "ring_pointer": "0x147af7ad0"
   },
   "post_highball_preimages_sha256": {
+    "dlls/ntdll/unix/virtual.c": "1c160c713825d92333540c6fd8d88d629fdff3a086b74ec635bf13a6397bf10c",
+    "dlls/ntdll/unix/unix_private.h": "63260aaced58efdecd48c229b563f851ddea1cb3fff803d453fc9fd5fa0e4629",
     "dlls/ntdll/ntdll.spec": "1d077d5b2514ea86ecee0743f60ee6a68993b187a2e8076b2798286fd8cc65bf",
     "dlls/ntdll/signal_x86_64.c": "17f21e7f75f2bd1b0a08d9e6440971164af7808ab026123cf447bb668057170d",
     "dlls/ntdll/unix/aoe_build_guard.h": null,
