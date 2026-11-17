@@ -16,38 +16,20 @@ The engine includes measured profiles for 16.3.11308.0 and 17.0.12303.0. The lat
 tested in one solo skirmish. See [validation](VALIDATION.md) for the hardware, build, matched
 comparisons and open checks.
 
-## Changes in r3
+## What the engine fixes
 
-r3 retains r2's relocated-instruction cache and adds a thread-local cache of validated
-memory-page permissions. Most instruction lookups no longer acquire Wine's VM lock or
-search its mapping tree. They still reread the live ring pointer and instruction bytes.
-A VM generation changes around mapping/protection operations; a changed generation,
-changed pointer, different page or failed copy falls back to the locked reader. Normal
-resumes outside the ring preserve the useful page snapshot.
+The engine combines a Rosetta software-fault/x87 decoder with a cache for the game's
+repeated generated-code fragments. It also caches validated memory-page permissions
+so repeated lookups avoid Wine's VM lock and mapping-tree search. Lookups still read
+the live ring pointer and bytes; mapping/protection changes invalidate the snapshot.
+A private no-fault copy preserves guard pages. Invalid snapshots use the locked reader
+automatically. Steam and other executables do not activate the AoE cache.
 
-A private no-fault copy recovers only faults at its own load instruction, before Wine
-consumes a Windows guard page. The optimization is limited to the AoE executable on
-Darwin x86-64; the existing executable verification and ring discovery still gate use.
-Steam and other executables do not enable VM generation tracking.
-
-Three same-process Late Siege comparisons reduced P99 frame intervals from 75–83 ms
-to 42 ms, with about 50 ms-or-longer frames falling from 40–41 to 4–7 per 20-second
-window. Average FPS rose from 36.6–37.0 to 38.7–39.2. This does not eliminate every
-stutter. See [r3 measurements and limitations](VALIDATION.md#r3-validated-page-cache).
-
-## Changes in r2
-
-- Wine reads the ring pointer and checks and copies the active fragment under one virtual
-  memory lock. It checks the pointer and fragment again before accepting the copy.
-- A thread-local lookup reuses already-relocated code across ring slots when the instruction
-  prefix and absolute near-jump destination match. A miss uses the existing decoder and
-  shared cache. Exception addresses continue to refer to the current game slot.
-- The Wine changes are gated to the recognized AoE IV process, with the existing profile and
-  auto-discovery checks.
-
-In one matched 25-second Late Siege village capture, displayed FPS rose from 44.4 to 49.7
-and the 99th-percentile frame interval fell from 166.7 ms to 108.3 ms. Periodic stalls still
-occurred. See the [Late Siege measurements](VALIDATION.md#late-siege-frame-pacing).
+The [unpatched comparison](VALIDATION.md#unpatched-and-patched-r32) measured 37.8 FPS
+without the AoE patch versus 58.7 with the decoder/cache, with the longest presented
+interval falling from 133.3 to 33.3 ms in the same Nagari save. That measurement covers
+the decoder/cache path; it is not a matched unpatched measurement of the final combined
+engine. Smaller Late Siege stutters remain.
 
 ## Install r3
 
@@ -75,22 +57,11 @@ Use the bottle's counter directory to confirm that the game actually hit the cac
 python3 proposals/aoe4/cache-stats.py /path/to/bottle/aoe4-counters --require-active
 ```
 
-For a cache-only comparison, stop the bottle and set `AOE4_CACHE=0` with
-`highball bottle set AoE4 env AOE4_CACHE=0`. Use an empty value to restore the cache and start
-a new game process. `AOE4_X87=0` selects the software-fault decoder alone.
-`AOE4_DISABLED=1` bypasses the AoE IV hooks.
-
-To compare only r3’s memory-page optimization with the r2 reader, set
-`AOE4_DISABLE_VM_CACHE=1` and restart the game. Remove that environment variable
-entirely to restore r3 (even an empty value disables this optimization).
-
 ## Build the engine
 
-The r3 release rebuilds the x86-64 Wine Unix ntdll from the source used in the Late Siege
-captures with a macOS 14 deployment target. It packages that module with the r2 engine
-and helper binaries. The release includes the matching Wine patches, the pinned sources
-and checksums. See `build-provenance.txt` among its assets for the base release, build
-details and module digest.
+The release includes the engine, signed arm64 helper, profiles, matching patches,
+pinned sources and checksums. See `build-provenance.txt` among its assets for exact
+source commits, build settings and module digests.
 
 To build the source in GitHub Actions, dispatch `build-engine` with `aoe4=true`.
 The job verifies the pinned Wine source and patches,
