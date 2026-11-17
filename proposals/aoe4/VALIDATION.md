@@ -77,8 +77,8 @@ frames in Wine's context restore. A typical long frame coincided with about
 analysis](https://github.com/tarikbc/ageofempires-android/blob/main/docs/how-it-works/INSTRUCTION-STEPPER.md)
 identifies the same 16 MiB ring as the Aegis instruction stepper.
 
-The local build reads the pointer and verifies the fragment in a single
-Wine VM lock acquisition. The next change reuses a previously relocated
+The r2 build reads the pointer and verifies the fragment in a single
+Wine VM lock acquisition. It also reuses a previously relocated
 fragment when an exact instruction prefix and absolute jump target match
 across ring slots. The shortcut accounted for about 94% of cache hits by
 the end of the run.
@@ -92,7 +92,7 @@ trace value. The 99th percentile comes from the per-frame HUD log.
 | --- | ---: | ---: | ---: |
 | Published r1 | 44.4 | 166.7 ms | 183.3 ms |
 | Batched memory reads | 49.2 | 120.8 ms | 141.7 ms |
-| Batched reads and jump lookup | 49.7 | 108.3 ms | 125.0 ms |
+| r2 profiling build | 49.7 | 108.3 ms | 125.0 ms |
 
 During the jump-lookup run, panning away reduced the fragment draw count
 to 1,644 while the stalls continued. In that lighter view, 829 of 1,739
@@ -114,5 +114,8 @@ remains to be identified.
 - The [r1 build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/43741809761)
   rebuilt both ntdll modules and the arm64 helper. A fresh Highball install of that artifact
   unpacked the helper and profiles, created a bottle and ran a Windows command in it.
-- Extended late-game play, replay and Windows multiplayer remain to be checked before
-  proposing the engine for Highball's app catalog and game database.
+- The r2 Late Siege tests ran a local build in a clone of the r1 Highball bottle with
+  D3DMetal. The release module was rebuilt from the same Wine source with the r1
+  deployment target of macOS 14.
+- Extended late-game play, replay, Windows multiplayer and the clean Highball recipe-to-Play
+  flow remain to be checked.

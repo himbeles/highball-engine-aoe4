@@ -16,15 +16,29 @@ The engine includes measured profiles for 16.3.11308.0 and 17.0.12303.0. The lat
 tested in one solo skirmish. See [validation](VALIDATION.md) for the hardware, build, matched
 comparisons and open checks.
 
-## Install r1
+## Changes in r2
 
-Download `aoe4-engine.json` from the [r1 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r1).
+- Wine reads the ring pointer and checks and copies the active fragment under one virtual
+  memory lock. It checks the pointer and fragment again before accepting the copy.
+- A thread-local lookup reuses already-relocated code across ring slots when the instruction
+  prefix and absolute near-jump destination match. A miss uses the existing decoder and
+  shared cache. Exception addresses continue to refer to the current game slot.
+- The Wine changes are gated to the recognized AoE IV process, with the existing profile and
+  auto-discovery checks.
+
+In one matched 25-second Late Siege village capture, displayed FPS rose from 44.4 to 49.7
+and the 99th-percentile frame interval fell from 166.7 ms to 108.3 ms. Periodic stalls still
+occurred. See the [Late Siege measurements](VALIDATION.md#late-siege-frame-pacing).
+
+## Install r2
+
+Download `aoe4-engine.json` from the [r2 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r2).
 Highball downloads and verifies the engine and helper from that manifest. Accept Apple's Game
 Porting Toolkit license to enable D3DMetal.
 
 ```bash
 highball engine install /path/to/aoe4-engine.json --accept-d3dmetal-license
-highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r1 --renderer d3dmetal
+highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r2 --renderer d3dmetal
 ```
 
 Install Steam and AoE IV in that bottle. In the Highball app, use **Open Steam** to browse
@@ -47,7 +61,14 @@ a new game process. `AOE4_X87=0` selects the software-fault decoder alone.
 
 ## Build the engine
 
-Dispatch `build-engine` with `aoe4=true`. The job verifies the pinned Wine source and patches,
+The r2 release rebuilds the x86-64 Wine Unix ntdll from the source used in the Late Siege
+captures with a macOS 14 deployment target. It packages that module with the r1 engine
+and helper binaries. The release includes the matching Wine patches, the pinned sources
+and checksums. See `build-provenance.txt` among its assets for the base release, build
+details and module digest.
+
+To build the source in GitHub Actions, dispatch `build-engine` with `aoe4=true`.
+The job verifies the pinned Wine source and patches,
 builds the Intel engine and signed arm64 helper, and uploads the engine, helper and corresponding
 source archives with checksums. Set `publish_release=true` to publish those archives and the
 install manifest under a tag. Update the manifest engine revision before shipping a new version.

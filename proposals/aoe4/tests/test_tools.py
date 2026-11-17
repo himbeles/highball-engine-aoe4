@@ -62,17 +62,17 @@ new file mode 100644
                 self.assertEqual(m['components'][key]['sha256'],hashlib.sha256(path.read_bytes()).hexdigest())
                 self.assertEqual(m['components'][key]['size'],path.stat().st_size)
                 self.assertEqual(m['components'][key]['url'],path.resolve().as_uri())
-            self.assertEqual(m['id'],'x64-crossover26.3-aoe4-r1')
+            self.assertEqual(m['id'],'x64-crossover26.3-aoe4-r2')
             self.assertGreater(m['components']['aoe4-helper']['order'], m['components']['runtime'].get('order', 0))
             self.assertEqual(m["baseEnv"]["AOELAB_CODE_CACHE_GAME"],"1")
             self.assertIn("apple-gptk-license-2023-08-17",m["licenses"])
-            release = 'https://github.com/himbeles/highball-engine-aoe4/releases/download/aoe4-r1'
+            release = 'https://github.com/himbeles/highball-engine-aoe4/releases/download/aoe4-r2'
             self.command('make-manifest.py', *args, '--release-url', release)
             hosted = json.loads(output.read_text())
             for key, path in (('wine', wine), ('aoe4-helper', helper)):
                 self.assertEqual(hosted['components'][key]['url'], f'{release}/{path.name}')
                 self.assertEqual(hosted['components'][key]['sha256'], m['components'][key]['sha256'])
-            self.command('make-manifest.py', *args, '--release-url', release.replace('/download/aoe4-r1', '/latest/download'), ok=False)
+            self.command('make-manifest.py', *args, '--release-url', release.replace('/download/aoe4-r2', '/latest/download'), ok=False)
             with tarfile.open(helper,'w:gz'):pass
             self.command('make-manifest.py',*args,ok=False)
 if __name__=='__main__':unittest.main()
