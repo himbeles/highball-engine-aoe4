@@ -141,10 +141,10 @@ comes from one of their checks; the READMEs beside the patches say which, and wh
 
 The [Age of Empires IV engine](proposals/aoe4/README.md) uses Intel Wine 11 on Rosetta.
 Its combined decoder and adaptive generated-code cache are packaged for Highball.
-The [r2 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r2)
+The [r3 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r3)
 reduces the cost of repeated cache hits in the Late Siege tutorial.
-See the [engine changes](proposals/aoe4/README.md#changes-in-r2) and
-[validation results](proposals/aoe4/VALIDATION.md#late-siege-frame-pacing).
+See the [engine changes](proposals/aoe4/README.md#changes-in-r3) and
+[validation results](proposals/aoe4/VALIDATION.md#r3-validated-page-cache).
 
 ## Releases
 

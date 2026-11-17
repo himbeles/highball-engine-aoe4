@@ -16,6 +16,25 @@ The engine includes measured profiles for 16.3.11308.0 and 17.0.12303.0. The lat
 tested in one solo skirmish. See [validation](VALIDATION.md) for the hardware, build, matched
 comparisons and open checks.
 
+## Changes in r3
+
+r3 retains r2's relocated-instruction cache and adds a thread-local cache of validated
+memory-page permissions. Most instruction lookups no longer acquire Wine's VM lock or
+search its mapping tree. They still reread the live ring pointer and instruction bytes.
+A VM generation changes around mapping/protection operations; a changed generation,
+changed pointer, different page or failed copy falls back to the locked reader. Normal
+resumes outside the ring preserve the useful page snapshot.
+
+A private no-fault copy recovers only faults at its own load instruction, before Wine
+consumes a Windows guard page. The optimization is limited to the AoE executable on
+Darwin x86-64; the existing executable verification and ring discovery still gate use.
+Steam and other executables do not enable VM generation tracking.
+
+Three same-process Late Siege comparisons reduced P99 frame intervals from 75–83 ms
+to 42 ms, with about 50 ms-or-longer frames falling from 40–41 to 4–7 per 20-second
+window. Average FPS rose from 36.6–37.0 to 38.7–39.2. This does not eliminate every
+stutter. See [r3 measurements and limitations](VALIDATION.md#r3-validated-page-cache).
+
 ## Changes in r2
 
 - Wine reads the ring pointer and checks and copies the active fragment under one virtual
@@ -30,15 +49,15 @@ In one matched 25-second Late Siege village capture, displayed FPS rose from 44.
 and the 99th-percentile frame interval fell from 166.7 ms to 108.3 ms. Periodic stalls still
 occurred. See the [Late Siege measurements](VALIDATION.md#late-siege-frame-pacing).
 
-## Install r2
+## Install r3
 
-Download `aoe4-engine.json` from the [r2 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r2).
+Download `aoe4-engine.json` from the [r3 release](https://github.com/himbeles/highball-engine-aoe4/releases/tag/aoe4-r3).
 Highball downloads and verifies the engine and helper from that manifest. Accept Apple's Game
 Porting Toolkit license to enable D3DMetal.
 
 ```bash
 highball engine install /path/to/aoe4-engine.json --accept-d3dmetal-license
-highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r2 --renderer d3dmetal
+highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r3 --renderer d3dmetal
 ```
 
 Install Steam and AoE IV in that bottle. In the Highball app, use **Open Steam** to browse
@@ -61,10 +80,14 @@ For a cache-only comparison, stop the bottle and set `AOE4_CACHE=0` with
 a new game process. `AOE4_X87=0` selects the software-fault decoder alone.
 `AOE4_DISABLED=1` bypasses the AoE IV hooks.
 
+To compare only r3’s memory-page optimization with the r2 reader, set
+`AOE4_DISABLE_VM_CACHE=1` and restart the game. Remove that environment variable
+entirely to restore r3 (even an empty value disables this optimization).
+
 ## Build the engine
 
-The r2 release rebuilds the x86-64 Wine Unix ntdll from the source used in the Late Siege
-captures with a macOS 14 deployment target. It packages that module with the r1 engine
+The r3 release rebuilds the x86-64 Wine Unix ntdll from the source used in the Late Siege
+captures with a macOS 14 deployment target. It packages that module with the r2 engine
 and helper binaries. The release includes the matching Wine patches, the pinned sources
 and checksums. See `build-provenance.txt` among its assets for the base release, build
 details and module digest.
