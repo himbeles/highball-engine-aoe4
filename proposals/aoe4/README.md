@@ -43,10 +43,12 @@ highball bottle create AoE4 --engine x64-crossover26.3-aoe4-r2 --renderer d3dmet
 
 Install Steam and AoE IV in that bottle. In the Highball app, use **Open Steam** to browse
 the Library and **Play** on the game's Highball page to launch with the bottle's D3DMetal renderer.
-From the CLI, use `highball run --renderer dxmt AoE4 Steam` to open Steam's Library. To launch the
-game with D3DMetal after browsing, quit Steam first and run
-`highball run AoE4 Steam -- -silent -applaunch 1466860`. The graphics driver check
-may display a modal because Wine presents an AMD compatibility adapter. Acknowledge it to continue.
+From the CLI, use `highball run --renderer dxmt AoE4 Steam` to open Steam's Library and
+`highball play steam:1466860` to use the game's Highball **Play** action. The Steam shortcut
+forces Wine synchronization off for Steam's Library. On a clean launch, **Play** uses the
+game's renderer and the bottle's synchronization setting. If the bottle uses MSync, check the launch log for
+`sync=msync`. The graphics driver check may display a modal because Wine presents an AMD
+compatibility adapter. Acknowledge it to continue.
 Check the Highball log for `AoE4 cache profile accepted` or `discovered ring allocation accepted`.
 Use the bottle's counter directory to confirm that the game actually hit the cache.
 
