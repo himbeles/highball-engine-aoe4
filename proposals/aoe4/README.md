@@ -106,3 +106,12 @@ The decoder composition, GS fallback and FBLD fixes are [MIT-distributed MacGame
 patches](https://github.com/tarikbc/macgames/tree/1579841b15ce569807b92af95b478c752c26df3d/patches/x87sidecar).
 The source commits, patch digests and archive hash are recorded in [inputs.lock.json](inputs.lock.json).
 The HDE and helper licence notices accompany the respective artifacts.
+
+### Standalone install manifests
+
+On the fork, dispatch the Wine and x87sidecar builds from the same commit on
+`aoe4-wine11` with publishing enabled. Give the Wine build a revision note like
+`aoe4-r6`. The manifest workflow checks both published checksums and creates
+a separate `aoe4-r6` release containing `aoe4-engine-r6.json`. The
+**Publish AoE IV install manifest** workflow also accepts a build commit for
+existing component releases.

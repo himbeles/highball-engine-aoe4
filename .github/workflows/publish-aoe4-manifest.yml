@@ -1,0 +1,45 @@
+name: Publish AoE IV install manifest
+
+on:
+  workflow_run:
+    workflows: [build-engine, build-x87sidecar]
+    types: [completed]
+    branches: [aoe4-wine11]
+  workflow_dispatch:
+    inputs:
+      build_commit:
+        description: Full commit SHA used for both published components
+        type: string
+        required: true
+      wine_tag:
+        description: Wine release tag to publish (defaults to the newest at this commit)
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aoe4-install-manifest-${{ github.event.workflow_run.head_sha || inputs.build_commit }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'himbeles/highball-engine-aoe4' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.event == 'workflow_dispatch' &&
+        github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish the versioned manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_COMMIT: ${{ github.event.workflow_run.head_sha || inputs.build_commit }}
+          WINE_TAG: ${{ inputs.wine_tag }}
+        run: python3 proposals/aoe4/publish-install-manifest.py
