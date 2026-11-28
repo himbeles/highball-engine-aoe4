@@ -92,5 +92,25 @@ These are startup and main-menu checks from game/process logs. No mission
 playthrough or visual rendering validation was performed. Compatibility
 metadata does not add AMD hardware features.
 
-The normal engine workflow was also dispatched on the testing branch with
+The normal engine workflow passed on the testing branch with
 release publication disabled: [branch build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/46157701602).
+
+
+## Packaged r7 validation
+
+The archive from run `46157701602` was checked against the workflow checksum.
+Both ADL architectures are Wine builtins in the private directory, with their
+licence and notice; neither is present in the global DLL directories. The r7
+manifest passed Highball's decoder and installed all nine pinned components
+through the normal engine installer in the isolated test home.
+
+On the manifest-installed engine, native AGS initialized successfully. Another
+executable and `HB_AOE4_ADL=0` retained the original AGS result. A fresh Steam
+launch of the actual game reached MainMenuPage without input and remained alive
+for more than 60 seconds after reaching it. The installed r7 helper was active.
+Driver metadata and `Gen7 Only` matched the local test. Another executable in
+the running game's prefix still could not discover ADL. Game files were
+unchanged and graphics settings differed only in the startup timestamp.
+
+The checks cover startup and process isolation, using game/process logs.
+Visual rendering and a mission playthrough remain untested.
