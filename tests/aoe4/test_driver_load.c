@@ -1,4 +1,7 @@
-/* Integration probe: run as RelicCardinal.exe and as another.exe on the same staged engine. */
+/* Build with x86_64-w64-mingw32-gcc -O2 -static, then copy to RelicCardinal.exe
+ * and OtherGameProbe.exe. With HB_AOE4=1 HB_AOE4_CACHE=0, the game probe takes
+ * "present [child Windows path]"; the other probe takes no arguments. With
+ * HB_AOE4_ADL=0, run the game probe without arguments. Keep ADL out of this folder. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
