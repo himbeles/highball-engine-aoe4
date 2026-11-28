@@ -64,9 +64,33 @@ Local results on 2026-11-28:
 - The verified parent loaded ADL; its child inherited the environment and
   reported ADL absent (error 126).
 
-The earlier game-folder DLL trial reached the main menu with the compatibility
-driver version, retained the `Gen7 Only` performance class, and changed no
-other graphics setting. That temporary DLL was subsequently removed. This
-full-game result belongs to the earlier native-DLL trial; the integrated
-engine has been validated with native AGS and loader probes, not a second
-full-game session. Compatibility metadata does not add AMD hardware features.
+## Full-game startup comparison (test branch, 2026-11-28)
+
+The integration is being tested on `himbeles/highball-engine-aoe4` branch
+`aoe4-adl-testing`; the ADL commit was removed from upstream PR 49. The game
+folder's temporary DLL was removed before these runs.
+
+A separate APFS-cloned prefix and a private copy of the game's Documents folder
+were used with D3DMetal. The installed engine and original game files were not
+modified. The actual `RelicCardinal.exe` and native `amd_ags_x64.dll` hashes
+matched the original installation. No ADL was present in the game folder or
+the prefix's system32/syswow64 directories.
+
+| Engine / switch | Startup result |
+|---|---|
+| Existing r6 engine | Reached Graphics driver check; no installed driver version or main menu during observation. |
+| Integrated ADL engine, normal opt-in | Three launches reached MainMenuPage without input. Driver 99.19.02 was reported against required 21.20.01.14. The repeated launch was observed for 179 seconds from Steam startup; the game and shared helper remained alive. |
+| Same integrated engine, `HB_AOE4_ADL=0` | Restored the baseline graphics-check behavior; no installed driver version or main menu during 107 seconds from Steam startup. |
+
+The GPU class remained `Gen7 Only`. The system graphics configuration changed
+only its `last_modified` timestamp. While the actual patched game was running,
+another native AGS probe in the same prefix still returned the original
+`AGS_NO_AMD_DRIVER_INSTALLED` result. This checks that the private module is
+not exposed to another process even during the real game session.
+
+These are startup and main-menu checks from game/process logs. No mission
+playthrough or visual rendering validation was performed. Compatibility
+metadata does not add AMD hardware features.
+
+The normal engine workflow was also dispatched on the testing branch with
+release publication disabled: [branch build](https://github.com/himbeles/highball-engine-aoe4/actions/runs/46157701602).
