@@ -4,6 +4,7 @@
 |---|---|---|---|
 | Wine (CrossOver sources) | media.codeweavers.com/pub/crossover/source | LGPL-2.1-or-later | yes, as the engine |
 | Highball patch series | patches/ | LGPL-2.1-or-later | yes |
+| Proton AMD Display Library implementation (`atiadlxx`) | ValveSoftware/wine at `0be231deb686bc9c9dd15dae836baa5b3b02150e`, imported by Wine patch 0036 | LGPL-2.1-or-later | yes, private to verified AoE IV launches |
 | Highball patch series of the arm64 line | patches-arm64/ (Wine), fex/patches/ (FEX), moltenvk-arm64/ (MoltenVK, SPIRV-Cross), renderers-arm64/ (vkd3d-proton, DXVK) | the licence of the component each patch changes | yes |
 | MoltenVK (the Intel line's build, and 1.4.2 with moltenvk-arm64/moltenvk/ for the arm64 line) | github.com/KhronosGroup/MoltenVK | Apache-2.0 | yes |
 | SPIRV-Cross (built into the arm64 line's MoltenVK, with moltenvk-arm64/spirv-cross/) | github.com/KhronosGroup/SPIRV-Cross | Apache-2.0 | yes, inside MoltenVK |

@@ -15,13 +15,13 @@ Simulator 2024), and to nothing else.
 
 ## Patches at a glance
 
-149 patches across six folders. Each folder's README starts with a table, one line per
+150 patches across six folders. Each folder's README starts with a table, one line per
 patch: what it fixes, the game or program that needed it, what kind of change it is, and where it
 stands upstream. The paragraphs under each table give the details and the measurements.
 
 | Folder | Patches | On top of | Engine line |
 |---|---|---|---|
-| [`patches/`](patches/) | 33 | CodeWeavers' CrossOver 26.3 Wine source | Intel (Wine 11, `x64-crossover26.3-r*`) |
+| [`patches/`](patches/) | 34 | CodeWeavers' CrossOver 26.3 Wine source | Intel (Wine 11, `x64-crossover26.3-r*`) |
 | [`x87sidecar/patches/`](x87sidecar/patches/) | 1 | x87sidecar at `052944f` | Intel (Wine 11 on Rosetta) |
 | [`patches-arm64/`](patches-arm64/) | 41 | WineHQ Wine 11.18 | arm64 |
 | [`fex/patches/`](fex/patches/) | 35 | FEX 2610 | arm64 |

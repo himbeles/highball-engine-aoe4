@@ -11,10 +11,12 @@ if [[ $(uname -s) != Darwin ]]; then
   digest_flags+=(-I"$test_dir/compat" -lcrypto)
 fi
 "$cc" "${common[@]}" "$test_dir/test_guard.c" "${digest_flags[@]}" -o "$work/guard"
+"$cc" "${common[@]}" "$test_dir/test_driver_gate.c" "${digest_flags[@]}" -o "$work/driver-gate"
 "$cc" "${common[@]}" "$test_dir/test_layout.c" "${digest_flags[@]}" -o "$work/layout"
 "$cc" "${common[@]}" "$test_dir/test_discovery.c" "${digest_flags[@]}" -o "$work/discovery"
 "$work/layout"
 "$work/guard"
+"$work/driver-gate"
 "$work/discovery"
 if [[ $(uname -m) == x86_64 ]]; then
   "$cc" "${common[@]}" "$test_dir/test_relocator.c" -o "$work/relocator"
